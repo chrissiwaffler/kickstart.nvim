@@ -91,7 +91,7 @@ vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
 -- Set to true if you have a Nerd Font installed and selected in the terminal
-vim.g.have_nerd_font = false
+--vim.g.have_nerd_font = false
 
 -- [[ Setting options ]]
 -- See `:help vim.opt`
@@ -102,7 +102,7 @@ vim.g.have_nerd_font = false
 vim.opt.number = true
 -- You can also add relative line numbers, to help with jumping.
 --  Experiment for yourself to see if you like it!
--- vim.opt.relativenumber = true
+vim.opt.relativenumber = true
 
 -- Enable mouse mode, can be useful for resizing splits for example!
 vim.opt.mouse = 'a'
@@ -114,6 +114,16 @@ vim.opt.showmode = false
 --  Remove this option if you want your OS clipboard to remain independent.
 --  See `:help 'clipboard'`
 vim.opt.clipboard = 'unnamedplus'
+
+-- Prevent deleted text from being copied to the clipboard
+vim.keymap.set({ 'n', 'x' }, 'd', '"_d')
+vim.keymap.set({ 'n', 'x' }, 'D', '"_D')
+vim.keymap.set({ 'n', 'x' }, 'c', '"_c')
+vim.keymap.set({ 'n', 'x' }, 'C', '"_C')
+vim.keymap.set({ 'n', 'x' }, 'x', '"_x')
+vim.keymap.set({ 'n', 'x' }, 'X', '"_X')
+
+vim.keymap.set('v', 'yd', 'y<ESC>gvd', { noremap = true, desc = 'Yank then delete selection' })
 
 -- Enable break indent
 vim.opt.breakindent = true
@@ -190,6 +200,14 @@ vim.keymap.set('n', '<C-l>', '<C-w><C-l>', { desc = 'Move focus to the right win
 vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
 vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
 
+-- Move lines up and down
+vim.keymap.set('n', '<A-k>', ':m .-2<CR>==', { desc = 'Move line up' })
+vim.keymap.set('n', '<A-j>', ':m .+1<CR>==', { desc = 'Move line down' })
+
+-- Move lines up and down in visual mode
+vim.keymap.set('v', '<A-k>', ":m '<-2<CR>gv=gv", { desc = 'Move selection up' })
+vim.keymap.set('v', '<A-j>', ":m '>+1<CR>gv=gv", { desc = 'Move selection down' })
+
 -- [[ Basic Autocommands ]]
 --  See `:help lua-guide-autocommands`
 
@@ -212,6 +230,33 @@ if not vim.loop.fs_stat(lazypath) then
   vim.fn.system { 'git', 'clone', '--filter=blob:none', '--branch=stable', lazyrepo, lazypath }
 end ---@diagnostic disable-next-line: undefined-field
 vim.opt.rtp:prepend(lazypath)
+
+local ibl_setup = function()
+  local highlight = {
+    'RainbowRed',
+    'RainbowYellow',
+    'RainbowBlue',
+    'RainbowOrange',
+    'RainbowGreen',
+    'RainbowViolet',
+    'RainbowCyan',
+  }
+  local hooks = require 'ibl.hooks'
+  -- create the highlight groups in the highlight setup hook, so they are reset
+  -- every time the colorscheme changes
+  hooks.register(hooks.type.HIGHLIGHT_SETUP, function()
+    vim.api.nvim_set_hl(0, 'RainbowRed', { fg = '#E06C75' })
+    vim.api.nvim_set_hl(0, 'RainbowYellow', { fg = '#E5C07B' })
+    vim.api.nvim_set_hl(0, 'RainbowBlue', { fg = '#61AFEF' })
+    vim.api.nvim_set_hl(0, 'RainbowOrange', { fg = '#D19A66' })
+    vim.api.nvim_set_hl(0, 'RainbowGreen', { fg = '#98C379' })
+    vim.api.nvim_set_hl(0, 'RainbowViolet', { fg = '#C678DD' })
+    vim.api.nvim_set_hl(0, 'RainbowCyan', { fg = '#56B6C2' })
+  end)
+  vim.g.rainbow_delimiters = { highlight = highlight }
+  require('ibl').setup { scope = { highlight = highlight } }
+  hooks.register(hooks.type.SCOPE_HIGHLIGHT, hooks.builtin.scope_highlight_from_extmark)
+end
 
 -- [[ Configure and install plugins ]]
 --
@@ -257,6 +302,110 @@ require('lazy').setup({
       },
     },
   },
+  {
+    'polirritmico/monokai-nightasty.nvim',
+    lazy = false,
+    priority = 1000,
+  },
+  {
+    'lukas-reineke/indent-blankline.nvim',
+    main = 'ibl',
+    config = ibl_setup,
+  },
+  {
+    'jiangmiao/auto-pairs',
+  },
+  {
+    'akinsho/toggleterm.nvim',
+    version = '*',
+    config = function()
+      require('toggleterm').setup {
+        direction = 'float',
+      }
+    end,
+  },
+  {
+    'akinsho/bufferline.nvim',
+    version = '*',
+    enabled = false,
+    dependencies = 'nvim-tree/nvim-web-devicons',
+    config = function()
+      require('bufferline').setup {}
+    end,
+  },
+  {
+    'willothy/nvim-cokeline',
+    dependencies = {
+      'nvim-lua/plenary.nvim', -- Required for v0.4.0+
+      'nvim-tree/nvim-web-devicons', -- If you want devicons
+      'stevearc/resession.nvim', -- Optional, for persistent history
+    },
+    config = function()
+      local get_hex = require('cokeline.hlgroups').get_hl_attr
+
+      local map = vim.api.nvim_set_keymap
+      map('n', '<Leader>p', '<Plug>(cokeline-switch-prev)', { silent = true })
+      map('n', '<Leader>n', '<Plug>(cokeline-switch-next)', { silent = true })
+      map('n', '<Leader>x', '<Plug>(cokeline-pick-close)', { silent = true })
+
+      require('cokeline').setup {
+
+        default_hl = {
+          fg = function(buffer)
+            return buffer.is_focused and get_hex('ColorColumn', 'bg') or get_hex('Normal', 'fg')
+          end,
+          bg = function(buffer)
+            return buffer.is_focused and get_hex('Normal', 'fg') or get_hex('ColorColumn', 'bg')
+          end,
+        },
+
+        components = {
+          {
+            text = function(buffer)
+              return ' ' .. buffer.devicon.icon
+            end,
+            fg = function(buffer)
+              return buffer.devicon.color
+            end,
+          },
+          {
+            text = function(buffer)
+              return buffer.unique_prefix
+            end,
+            fg = get_hex('Comment', 'fg'),
+            italic = true,
+          },
+          {
+            text = function(buffer)
+              return buffer.filename .. ' '
+            end,
+            underline = function(buffer)
+              return buffer.is_hovered and not buffer.is_focused
+            end,
+          },
+          {
+            text = '',
+            on_click = function(_, _, _, _, buffer)
+              buffer:delete()
+            end,
+          },
+          {
+            text = ' ',
+          },
+        },
+      }
+    end,
+  },
+  --{ 'neoclide/coc.nvim' },
+  --{ 'ThreeFx/coc-isabelle' },
+  {
+    'Treeniks/isabelle-lsp.nvim',
+    branch = 'isabelle-language-server',
+    dependencies = {
+      'neovim/nvim-lspconfig',
+    },
+  },
+  { 'Treeniks/isabelle-syn.nvim' },
 
   -- NOTE: Plugins can also be configured to run Lua code when they are loaded.
   --
@@ -295,14 +444,12 @@ require('lazy').setup({
       }, { mode = 'v' })
     end,
   },
-
   -- NOTE: Plugins can specify dependencies.
   --
   -- The dependencies are proper plugin specifications as well - anything
   -- you do for a plugin at the top level, you can do for a dependency.
   --
   -- Use the `dependencies` key to specify the dependencies of a particular plugin
-
   { -- Fuzzy Finder (files, lsp, etc)
     'nvim-telescope/telescope.nvim',
     event = 'VimEnter',
@@ -326,6 +473,17 @@ require('lazy').setup({
 
       -- Useful for getting pretty icons, but requires a Nerd Font.
       { 'nvim-tree/nvim-web-devicons', enabled = vim.g.have_nerd_font },
+      {
+        'luckasRanarison/tailwind-tools.nvim',
+        name = 'tailwind-tools',
+        build = ':UpdateRemotePlugins',
+        dependencies = {
+          'nvim-treesitter/nvim-treesitter',
+          'nvim-telescope/telescope.nvim', -- optional
+          'neovim/nvim-lspconfig', -- optional
+        },
+        opts = {}, -- your configuration
+      },
     },
     config = function()
       -- Telescope is a fuzzy finder that comes with a lot of different things that
@@ -423,6 +581,18 @@ require('lazy').setup({
       -- `neodev` configures Lua LSP for your Neovim config, runtime and plugins
       -- used for completion, annotations and signatures of Neovim apis
       { 'folke/neodev.nvim', opts = {} },
+      {
+        'sindrets/diffview.nvim',
+        config = function()
+          -- Set up key mappings for Diffview
+          vim.api.nvim_set_keymap('n', '<leader>tdo', ':DiffviewOpen<CR>', { noremap = true, silent = true })
+          vim.api.nvim_set_keymap('n', '<leader>tdc', ':DiffviewClose<CR>', { noremap = true, silent = true })
+          vim.api.nvim_set_keymap('n', '<leader>tdf', ':DiffviewToggleFiles<CR>', { noremap = true, silent = true })
+
+          -- Set up key mapping for staging/unstaging files
+          vim.api.nvim_set_keymap('n', '<leader>tds', ':lua require("diffview.actions").toggle_stage_entry()<CR>', { noremap = true, silent = true })
+        end,
+      },
     },
     config = function()
       -- Brief aside: **What is LSP?**
@@ -567,7 +737,7 @@ require('lazy').setup({
       local servers = {
         -- clangd = {},
         -- gopls = {},
-        -- pyright = {},
+        pyright = {},
         -- rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
@@ -624,6 +794,11 @@ require('lazy').setup({
       }
     end,
   },
+  {
+    'pmizio/typescript-tools.nvim',
+    dependencies = { 'nvim-lua/plenary.nvim', 'neovim/nvim-lspconfig' },
+    opts = {},
+  },
 
   { -- Autoformat
     'stevearc/conform.nvim',
@@ -639,7 +814,7 @@ require('lazy').setup({
       },
     },
     opts = {
-      notify_on_error = false,
+      notify_on_error = true,
       format_on_save = function(bufnr)
         -- Disable "format_on_save lsp_fallback" for languages that don't
         -- have a well standardized coding style. You can add additional
@@ -647,18 +822,29 @@ require('lazy').setup({
         local disable_filetypes = { c = true, cpp = true }
         return {
           timeout_ms = 500,
-          lsp_fallback = not disable_filetypes[vim.bo[bufnr].filetype],
+          -- lsp_fallback = not disable_filetypes[vim.bo[bufnr].filetype],
+          lsp_fallback = true,
+          async = false,
         }
       end,
       formatters_by_ft = {
         lua = { 'stylua' },
         -- Conform can also run multiple formatters sequentially
-        -- python = { "isort", "black" },
+        python = { 'isort', 'black' },
         --
         -- You can use a sub-list to tell conform to run *until* a formatter
         -- is found.
-        -- javascript = { { "prettierd", "prettier" } },
+        javascript = { { 'prettierd', 'prettier' } },
+        typescript = { { 'prettierd', 'prettier' } },
+        javascriptreact = { { 'prettierd', 'prettier' } },
+        typescriptreact = { { 'prettierd', 'prettier' } },
+        css = { { 'prettierd', 'prettier' } },
+        html = { { 'prettierd', 'prettier' } },
+        json = { { 'prettierd', 'prettier' } },
+        yaml = { { 'prettierd', 'prettier' } },
+        markdown = { { 'prettierd', 'prettier' } },
       },
+      log_level = vim.log.levels.DEBUG,
     },
   },
 
@@ -729,7 +915,19 @@ require('lazy').setup({
           -- Accept ([y]es) the completion.
           --  This will auto-import if your LSP supports it.
           --  This will expand snippets if the LSP sent a snippet.
-          ['<C-y>'] = cmp.mapping.confirm { select = true },
+          -- ['<C-y>'] = cmp.mapping.confirm { select = true },
+          ['<Tab>'] = cmp.mapping(function(fallback)
+            if cmp.visible() then
+              local entry = cmp.get_selected_entry()
+              if not entry then
+                cmp.select_next_item { behavior = cmp.SelectBehavior.Select }
+              else
+                cmp.confirm()
+              end
+            else
+              fallback()
+            end
+          end, { 'i', 's' }),
 
           -- If you prefer more traditional completion keymaps,
           -- you can uncomment the following lines
@@ -740,7 +938,7 @@ require('lazy').setup({
           -- Manually trigger a completion from nvim-cmp.
           --  Generally you don't need this, because nvim-cmp will display
           --  completions whenever it has completion options available.
-          ['<C-Space>'] = cmp.mapping.complete {},
+          ['<A-Space>'] = cmp.mapping.complete {},
 
           -- Think of <c-l> as moving to the right of your snippet expansion.
           --  So if you have a snippet that's like:
@@ -773,21 +971,37 @@ require('lazy').setup({
     end,
   },
 
-  { -- You can easily change to a different colorscheme.
-    -- Change the name of the colorscheme plugin below, and then
-    -- change the command in the config to whatever the name of that colorscheme is.
-    --
-    -- If you want to see what colorschemes are already installed, you can use `:Telescope colorscheme`.
-    'folke/tokyonight.nvim',
-    priority = 1000, -- Make sure to load this before all the other start plugins.
-    init = function()
-      -- Load the colorscheme here.
-      -- Like many other themes, this one has different styles, and you could load
-      -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
-      vim.cmd.colorscheme 'tokyonight-night'
+  --{ -- You can easily change to a different colorscheme.
+  -- Change the name of the colorscheme plugin below, and then
+  -- change the command in the config to whatever the name of that colorscheme is.
+  --
+  -- If you want to see what colorschemes are already installed, you can use `:Telescope colorscheme`.
+  --'folke/tokyonight.nvim',
+  -- 'catppuccin/nvim',
+  --priority = 1000, -- Make sure to load this before all the other start plugins.
+  --init = function()
+  -- vim.opt.background = 'dark'
+  -- Load the colorscheme here.
+  -- Like many other themes, this one has different styles, and you could load
+  -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
+  -- good scheme
+  --vim.cmd.colorscheme 'monokai-nightasty'
+  --vim.cmd.colorscheme 'Monokai-Charcoal'
+  --vim.cmd.colorscheme 'catppuccin'
 
-      -- You can configure highlights by doing something like:
-      vim.cmd.hi 'Comment gui=none'
+  -- You can configure highlights by doing something like:
+  --vim.cmd.hi 'Comment gui=none'
+  --end,
+  --},
+
+  {
+    'chrissiwaffler/sonokai',
+    lazy = false,
+    priority = 1000,
+    config = function()
+      vim.g.sonokai_style = 'sublime'
+      vim.cmd.colorscheme 'sonokai'
+      vim.g.sonokai_enable_italic = true
     end,
   },
 
@@ -829,6 +1043,40 @@ require('lazy').setup({
 
       -- ... and there is more!
       --  Check out: https://github.com/echasnovski/mini.nvim
+    end,
+  },
+  {
+    'nvim-tree/nvim-tree.lua',
+    config = function()
+      vim.keymap.set('n', '<leader>tf', ':NvimTreeToggle<CR>', { noremap = true, silent = true, desc = 'Toggle NvimTree' })
+
+      -- Autocommand to open
+      local function auto_update_path()
+        local buf = vim.api.nvim_get_current_buf()
+        local bufname = vim.api.nvim_buf_get_name(buf)
+        if vim.fn.isdirectory(bufname) or vim.fn.isfile(bufname) then
+          require('nvim-tree.api').tree.find_file(vim.fn.expand '%:p')
+        end
+      end
+
+      vim.api.nvim_create_autocmd('BufEnter', { callback = auto_update_path })
+    end,
+  },
+  -- plugins.lua
+  {
+    'OXY2DEV/intro.nvim',
+    enabled = false,
+    -- For file icons
+    dependencies = {
+      'nvim-tree/nvim-web-devicons',
+    },
+    config = function()
+      require('intro').setup {
+        preset = {
+          name = 'nvim_mini',
+          opts = { 'animated' },
+        },
+      }
     end,
   },
   { -- Highlight, edit, and navigate code
@@ -885,7 +1133,7 @@ require('lazy').setup({
   --
   --  Uncomment the following line and add your plugins to `lua/custom/plugins/*.lua` to get going.
   --    For additional information, see `:help lazy.nvim-lazy.nvim-structuring-your-plugins`
-  -- { import = 'custom.plugins' },
+  { import = 'custom.plugins' },
 }, {
   ui = {
     -- If you are using a Nerd Font: set icons to an empty table which will use the
@@ -907,6 +1155,59 @@ require('lazy').setup({
     },
   },
 })
+
+-- configuration for nvim tree toggle
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+
+-- optionally enable 24-bit colour
+vim.opt.termguicolors = true
+
+-- empty setup using defaults
+require('nvim-tree').setup()
+-- end of configuration for nvim tree toggle
+
+--require("catppuccin").setup({color_overrides = {mocha = {
+--					base = "#000000",
+--					mantle = "#000000",
+--					crust = "#000000",
+--				},
+--}})
+
+vim.opt.termguicolors = true
+
+-- isabelle/HOL config
+vim.filetype.add {
+  extension = {
+    thy = 'isabelle',
+  },
+}
+
+require('isabelle-lsp').setup {
+  isabelle_path = '/Users/chrissi/isabelle_tooling/isabelle-language-server/bin/isabelle',
+  vsplit = true,
+}
+
+--vim.api.nvim_create_autocmd('FileType', {
+--  pattern = 'isabelle',
+--  callback = function()
+--    vim.cmd 'vertical resize 120' -- Adjust the number as needed
+--  end,
+--})
+
+local lspconfig = require 'lspconfig'
+lspconfig.isabelle.setup {}
+
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = '*',
+  callback = function()
+    vim.opt_local.formatoptions:remove { 'r', 'o' }
+  end,
+})
+
+-- in your config:
+
+-- this needs to be declared in order to work
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
