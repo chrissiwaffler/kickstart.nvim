@@ -2,7 +2,8 @@ return {
   'yetone/avante.nvim',
   event = 'VeryLazy',
   lazy = false,
-  version = true, -- set this if you want to always pull the latest change
+  version = '*',
+
   opts = {
     ---@alias Provider "claude" | "openai" | "azure" | "gemini" | "cohere" | "copilot" | string
     provider = 'claude',
