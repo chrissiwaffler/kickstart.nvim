@@ -154,7 +154,9 @@ vim.opt.smartcase = true
 vim.opt.signcolumn = 'yes'
 
 -- Decrease update time
-vim.opt.updatetime = 250
+vim.opt.updatetime = 100
+
+vim.opt.conceallevel = 1
 
 -- Decrease mapped sequence wait time
 -- Displays which-key popup sooner
@@ -169,6 +171,10 @@ vim.opt.splitbelow = true
 --  and `:help 'listchars'`
 vim.opt.list = true
 vim.opt.listchars = { tab = '» ', trail = '·', nbsp = '␣' }
+vim.opt.tabstop = 2 -- Width of tab character
+vim.opt.softtabstop = 2 -- Fine-tunes amount of whitespace to be inserted
+vim.opt.shiftwidth = 2 -- Size of indentation
+vim.opt.expandtab = true -- Convert tabs to spaces
 
 -- Preview substitutions live, as you type!
 vim.opt.inccommand = 'split'
@@ -363,6 +369,14 @@ require('lazy').setup({
       map('n', '<Leader>n', '<Plug>(cokeline-switch-next)', { silent = true })
       map('n', '<Leader>x', '<Plug>(cokeline-pick-close)', { silent = true })
 
+      local function close_buffer_and_tab(bufnr)
+        local tabpage = vim.fn.tabpagenr()
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+        if #vim.api.nvim_list_bufs() == 0 then
+          vim.cmd('tabclose ' .. tabpage)
+        end
+      end
+
       require('cokeline').setup {
 
         default_hl = {
@@ -409,6 +423,12 @@ require('lazy').setup({
           },
         },
       }
+      vim.api.nvim_create_autocmd('TabClosed', {
+        callback = function()
+          local current_bufnr = vim.api.nvim_get_current_buf()
+          close_buffer_and_tab(current_bufnr)
+        end,
+      })
     end,
   },
   --{ 'neoclide/coc.nvim' },
@@ -441,22 +461,21 @@ require('lazy').setup({
     'folke/which-key.nvim',
     event = 'VimEnter', -- Sets the loading event to 'VimEnter'
     config = function() -- This is the function that runs, AFTER loading
-      require('which-key').setup()
+      local wk = require 'which-key'
+      wk.setup()
 
       -- Document existing key chains
-      require('which-key').register {
-        ['<leader>c'] = { name = '[C]ode', _ = 'which_key_ignore' },
-        ['<leader>d'] = { name = '[D]ocument', _ = 'which_key_ignore' },
-        ['<leader>r'] = { name = '[R]ename', _ = 'which_key_ignore' },
-        ['<leader>s'] = { name = '[S]earch', _ = 'which_key_ignore' },
-        ['<leader>w'] = { name = '[W]orkspace', _ = 'which_key_ignore' },
-        ['<leader>t'] = { name = '[T]oggle', _ = 'which_key_ignore' },
-        ['<leader>h'] = { name = 'Git [H]unk', _ = 'which_key_ignore' },
+      wk.add {
+        { '<leader>c', group = '[C]ode' },
+        { '<leader>d', group = '[D]ocument' },
+        { '<leader>r', group = '[R]ename' },
+        { '<leader>s', group = '[S]earch' },
+        { '<leader>w', group = '[W]orkspace' },
+        { '<leader>t', group = '[T]oggle' },
+        { '<leader>h', group = 'Git [H]unk' },
+        -- visual mode mapping
+        { '<leader>h', desc = 'Git [H]unk', mode = 'v' },
       }
-      -- visual mode
-      require('which-key').register({
-        ['<leader>h'] = { 'Git [H]unk' },
-      }, { mode = 'v' })
     end,
   },
   -- NOTE: Plugins can specify dependencies.
@@ -750,9 +769,38 @@ require('lazy').setup({
       --  - settings (table): Override the default settings passed when initializing the server.
       --        For example, to see the options for `lua_ls`, you could go to: https://luals.github.io/wiki/settings/
       local servers = {
-        -- clangd = {},
+        clangd = {
+          cmd = {
+            'clangd',
+            '--background-index',
+            '--clang-tidy',
+            '--header-insertion=iwyu',
+            '--completion-style=detailed',
+            '--function-arg-placeholders',
+            '--fallback-style=llvm',
+            '--query-driver=/usr/bin/g++,/usr/bin/gcc',
+            '--compile-commands-dir=build',
+            -- '-std=c++17', -- TODO: C++ standard
+          },
+          init_options = {
+            compilationDatabasePath = 'build',
+            clangdFileStatus = true,
+          },
+          filetypes = { 'c', 'cpp', 'objc', 'objcpp', 'cuda' },
+        },
+
+        cmake = {
+          filetypes = { 'cmake', 'CMakeLists.txt' },
+        },
+
         -- gopls = {},
-        pyright = {},
+        pyright = {
+          before_init = function(_, config)
+            config.settings.python.pythonPath = get_python_path(config.root_dir)
+          end,
+          on_attach = on_attach,
+          capabilities = capabilities,
+        },
         -- rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
@@ -792,6 +840,14 @@ require('lazy').setup({
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
+        'ruff',
+        'pyright',
+        'black',
+        'clangd', -- C++ LSP
+        'clang-format', -- C++ formatter
+        'cmake-language-server', -- For CMake support
+        'cpptools', -- For debugging support
+        'codelldb', -- Debugger
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -807,6 +863,19 @@ require('lazy').setup({
           end,
         },
       }
+    end,
+  },
+  {
+    'mfussenegger/nvim-lint',
+    config = function()
+      require('lint').linters_by_ft = {
+        python = { 'ruff' },
+      }
+      vim.api.nvim_create_autocmd({ 'BufWritePost' }, {
+        callback = function()
+          require('lint').try_lint()
+        end,
+      })
     end,
   },
   {
@@ -846,7 +915,7 @@ require('lazy').setup({
       formatters_by_ft = {
         lua = { 'stylua' },
         -- Conform can also run multiple formatters sequentially
-        python = { 'isort', 'black' },
+        python = { 'ruff_fix', 'ruff_format', 'isort', 'black' },
         --
         -- You can use a sub-list to tell conform to run *until* a formatter
         -- is found.
@@ -856,9 +925,14 @@ require('lazy').setup({
         typescriptreact = { 'prettierd', 'prettier' },
         css = { 'prettierd', 'prettier' },
         html = { 'prettierd', 'prettier' },
-        json = { 'prettierd', 'prettier' },
         yaml = { 'prettierd', 'prettier' },
+        json = { 'prettier' },
+        jsonc = { 'prettier' },
         markdown = { 'prettierd', 'prettier' },
+        cpp = { 'clang-format' },
+        c = { 'clang-format' },
+        java = { 'google-java-format' },
+        nix = { 'alejandra' },
       },
       log_level = vim.log.levels.DEBUG,
     },
@@ -1099,7 +1173,7 @@ require('lazy').setup({
     'nvim-treesitter/nvim-treesitter',
     build = ':TSUpdate',
     opts = {
-      ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'vim', 'vimdoc' },
+      ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'vim', 'vimdoc', 'python', 'javascript', 'typescript' },
       -- Autoinstall languages that are not installed
       auto_install = true,
       highlight = {
@@ -1180,7 +1254,15 @@ vim.g.loaded_netrwPlugin = 1
 vim.opt.termguicolors = true
 
 -- empty setup using defaults
-require('nvim-tree').setup()
+require('nvim-tree').setup {
+  git = {
+    ignore = false,
+  },
+  filters = {
+    dotfiles = false,
+    custom = { '*.avanterules' },
+  },
+}
 -- end of configuration for nvim tree toggle
 
 --require("catppuccin").setup({color_overrides = {mocha = {
@@ -1201,7 +1283,7 @@ vim.filetype.add {
 
 require('isabelle-lsp').setup {
   isabelle_path = '/Users/chrissi/isabelle_tooling/isabelle-language-server/bin/isabelle',
-  vsplit = true,
+  vsplit = false,
 }
 
 --vim.api.nvim_create_autocmd('FileType', {
