@@ -125,28 +125,7 @@ if vim.fn.has 'wsl' == 1 then
   }
 end
 
--- Sync clipboard between OS and Neovim.
---  Remove this option if you want your OS clipboard to remain independent.
---  See `:help 'clipboard'`
-
--- Check if in SSH session
--- if vim.env.SSH_TTY then
--- Use OSC 52 clipboard when in SSH
--- vim.g.clipboard = {
---   name = 'OSC 52',
---   copy = {
---     ['+'] = require('vim.ui.clipboard.osc52').copy '+',
---     ['*'] = require('vim.ui.clipboard.osc52').copy '*',
---   },
---   paste = {
---     ['+'] = function()
---       return { vim.fn.split(vim.fn.getreg '', '\n'), vim.fn.getregtype '' }
---     end,
---     ['*'] = function()
---       return { vim.fn.split(vim.fn.getreg '', '\n'), vim.fn.getregtype '' }
---     end,
---   },
--- }
+-- Sync clipboard between local OS and ssh server.
 vim.g.clipboard = {
   name = 'OSC 52',
   copy = {
@@ -158,10 +137,7 @@ vim.g.clipboard = {
     ['*'] = require('vim.ui.clipboard.osc52').paste '*',
   },
 }
--- else
---   -- Use regular system clipboard when local
 vim.opt.clipboard = 'unnamedplus'
--- end
 
 -- Prevent deleted text from being copied to the clipboard
 vim.keymap.set({ 'n', 'x' }, 'd', '"_d')
