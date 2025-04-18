@@ -475,6 +475,8 @@ require('lazy').setup({
         { '<leader>h', group = 'Git [H]unk' },
         -- visual mode mapping
         { '<leader>h', desc = 'Git [H]unk', mode = 'v' },
+        -- latex commands of VimTeX
+        { '<leader>l', group = '[L]aTeX' },
       }
     end,
   },
@@ -848,6 +850,7 @@ require('lazy').setup({
         'cmake-language-server', -- For CMake support
         'cpptools', -- For debugging support
         'codelldb', -- Debugger
+        'tex-fmt',
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -905,13 +908,19 @@ require('lazy').setup({
         -- languages here or re-enable it for the disabled ones.
         local disable_filetypes = { c = true, cpp = true }
         return {
-          timeout_ms = 500,
+          timeout_ms = 1000,
           -- lsp_fallback = not disable_filetypes[vim.bo[bufnr].filetype],
           lsp_fallback = true,
           async = false,
           stop_after_first = true,
         }
       end,
+      formatters = {
+        tex_fmt = {
+          command = 'tex-fmt',
+          args = { '--stdin' },
+        },
+      },
       formatters_by_ft = {
         lua = { 'stylua' },
         -- Conform can also run multiple formatters sequentially
@@ -933,6 +942,10 @@ require('lazy').setup({
         c = { 'clang-format' },
         java = { 'google-java-format' },
         nix = { 'alejandra' },
+        tex = { 'tex_fmt' },
+        latex = { 'tex_fmt' },
+        bib = { 'tex_fmt' },
+        bibtex = { 'tex_fmt' },
       },
       log_level = vim.log.levels.DEBUG,
     },
@@ -1199,6 +1212,102 @@ require('lazy').setup({
       --    - Incremental selection: Included, see `:help nvim-treesitter-incremental-selection-mod`
       --    - Show your current context: https://github.com/nvim-treesitter/nvim-treesitter-context
       --    - Treesitter + textobjects: https://github.com/nvim-treesitter/nvim-treesitter-textobjects
+    end,
+  },
+  {
+    'lervag/vimtex',
+    lazy = false, -- we don't want to lazy load VimTeX
+    tag = 'v2.16',
+    init = function()
+      -- Viewer settings
+      -- deactivated viewer for me on macos, use the normal pdf reader instead
+      -- vim.g.vimtex_view_method = 'zathura_simple'
+      -- vim.g.vimtex_view_zathura_use_synctex = 0
+      vim.g.vimtex_view_general_options = '--synctex-forward @line:@col:@tex @pdf'
+      vim.g.vimtex_view_automatic = 1 -- Auto-open viewer on compile
+
+      -- Compiler settings
+      vim.g.vimtex_compiler_method = 'latexmk'
+      vim.g.vimtex_compiler_latexmk = {
+        out_dir = 'build',
+        callback = 1,
+        continuous = 1,
+        executable = 'latexmk',
+        hooks = {},
+        options = {
+          '-verbose',
+          '-file-line-error',
+          '-synctex=1',
+          '-interaction=nonstopmode',
+        },
+      }
+
+      -- Syntax highlighting and conceal settings
+      vim.g.vimtex_syntax_enabled = 1
+      vim.g.vimtex_quickfix_mode = 2 -- Show errors on focus
+      vim.g.vimtex_quickfix_open_on_warning = 0 -- Only open QuickFix on error
+
+      -- TOC settings
+      vim.g.vimtex_toc_config = {
+        mode = 1,
+        fold_enable = 0,
+        hide_line_numbers = 1,
+        resize = 0,
+        refresh_always = 1,
+        show_help = 0,
+        show_numbers = 1,
+        split_pos = 'leftabove',
+        split_width = 30,
+        tocdepth = 3,
+        indent_levels = 1,
+        todo_sorted = 1,
+      }
+
+      vim.g.vimtex_syntax_conceal = {
+        accents = 1,
+        ligatures = 1,
+        cites = 1,
+        fancy = 1,
+        spacing = 0,
+        greek = 1,
+        math_bounds = 1,
+        math_delimiters = 1,
+        math_fracs = 1,
+        math_super_sub = 1,
+        math_symbols = 1,
+        sections = 1,
+        styles = 1,
+      }
+
+      -- Disable treesitter for tex files
+      vim.api.nvim_create_autocmd('FileType', {
+        pattern = { 'tex', 'latex' },
+        callback = function()
+          vim.cmd 'TSDisable highlight'
+        end,
+      })
+
+      -- Mappings
+      vim.api.nvim_create_autocmd('FileType', {
+        pattern = 'tex',
+        callback = function()
+          vim.keymap.set('n', '<leader>lt', '<cmd>VimtexTocToggle<CR>', { buffer = true })
+          vim.keymap.set('n', '<leader>lv', '<cmd>VimtexView<CR>', { buffer = true })
+          vim.keymap.set('n', '<leader>ll', '<cmd>VimtexCompile<CR>', { buffer = true })
+          vim.keymap.set('n', '<leader>lk', '<cmd>VimtexStop<CR>', { buffer = true })
+          vim.keymap.set('n', '<leader>lc', '<cmd>VimtexClean<CR>', { buffer = true })
+          vim.keymap.set('n', '<leader>le', '<cmd>VimtexErrors<CR>', { buffer = true })
+          vim.keymap.set('n', '<leader>lo', '<cmd>VimtexLog<CR>', { buffer = true })
+
+          -- Additional useful mappings
+          vim.keymap.set('n', 'dse', '<Plug>(vimtex-env-delete)', { buffer = true })
+          vim.keymap.set('n', 'dsc', '<Plug>(vimtex-cmd-delete)', { buffer = true })
+          vim.keymap.set('n', 'cse', '<Plug>(vimtex-env-change)', { buffer = true })
+          vim.keymap.set('n', 'csc', '<Plug>(vimtex-cmd-change)', { buffer = true })
+          vim.keymap.set('n', 'tse', '<Plug>(vimtex-env-toggle-star)', { buffer = true })
+          vim.keymap.set('n', 'tsc', '<Plug>(vimtex-cmd-toggle-star)', { buffer = true })
+        end,
+      })
     end,
   },
 
