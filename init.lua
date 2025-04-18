@@ -160,7 +160,7 @@ vim.g.clipboard = {
 }
 -- else
 --   -- Use regular system clipboard when local
---   vim.opt.clipboard = 'unnamedplus'
+vim.opt.clipboard = 'unnamedplus'
 -- end
 
 -- Prevent deleted text from being copied to the clipboard
