@@ -860,6 +860,7 @@ require('lazy').setup({
         'cpptools', -- For debugging support
         'codelldb', -- Debugger
         'tex-fmt',
+        'shfmt',
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -955,6 +956,9 @@ require('lazy').setup({
         latex = { 'tex_fmt' },
         bib = { 'tex_fmt' },
         bibtex = { 'tex_fmt' },
+        bash = { 'shfmt' },
+        sh = { 'shfmt' },
+        zsh = { 'shfmt' },
       },
       log_level = vim.log.levels.DEBUG,
     },
