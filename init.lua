@@ -861,6 +861,7 @@ require('lazy').setup({
         'codelldb', -- Debugger
         'tex-fmt',
         'shfmt',
+        'prettier',
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
