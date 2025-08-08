@@ -804,8 +804,6 @@ require('lazy').setup({
           filetypes = { 'cmake', 'CMakeLists.txt' },
         },
 
-        nil_ls = {},
-
         -- gopls = {},
         pyright = {
           before_init = function(_, config)
@@ -879,6 +877,10 @@ require('lazy').setup({
           end,
         },
       }
+      -- make sure to have nil manually installed in your system (installation via mason was tricky)
+      require('lspconfig').nil_ls.setup {
+        capabilities = capabilities, -- use the same capabilities from your mason setup
+      }
     end,
   },
   {
@@ -899,7 +901,6 @@ require('lazy').setup({
     dependencies = { 'nvim-lua/plenary.nvim', 'neovim/nvim-lspconfig' },
     opts = {},
   },
-
   { -- Autoformat
     'stevearc/conform.nvim',
     lazy = false,
