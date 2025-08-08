@@ -804,6 +804,8 @@ require('lazy').setup({
           filetypes = { 'cmake', 'CMakeLists.txt' },
         },
 
+        nil_ls = {},
+
         -- gopls = {},
         pyright = {
           before_init = function(_, config)
@@ -862,6 +864,7 @@ require('lazy').setup({
         'tex-fmt',
         'shfmt',
         'prettier',
+        'nil_ls',
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
