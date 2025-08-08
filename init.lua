@@ -864,7 +864,6 @@ require('lazy').setup({
         'tex-fmt',
         'shfmt',
         'prettier',
-        'nil',
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
