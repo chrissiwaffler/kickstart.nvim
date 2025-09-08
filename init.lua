@@ -238,6 +238,12 @@ vim.keymap.set('n', '<A-j>', ':m .+1<CR>==', { desc = 'Move line down' })
 vim.keymap.set('v', '<A-k>', ":m '<-2<CR>gv=gv", { desc = 'Move selection up' })
 vim.keymap.set('v', '<A-j>', ":m '>+1<CR>gv=gv", { desc = 'Move selection down' })
 
+-- Quickfix navigation
+vim.keymap.set('n', '[q', ':cprev<CR>', { desc = 'Previous quickfix item' })
+vim.keymap.set('n', ']q', ':cnext<CR>', { desc = 'Next quickfix item' })
+vim.keymap.set('n', '[Q', ':cfirst<CR>', { desc = 'First quickfix item' })
+vim.keymap.set('n', ']Q', ':clast<CR>', { desc = 'Last quickfix item' })
+
 -- [[ Basic Autocommands ]]
 --  See `:help lua-guide-autocommands`
 
@@ -363,81 +369,90 @@ require('lazy').setup({
       require('bufferline').setup {}
     end,
   },
+  -- using barbar instead of cokeline
   {
-    'willothy/nvim-cokeline',
+    'romgrk/barbar.nvim',
     dependencies = {
-      'nvim-lua/plenary.nvim', -- Required for v0.4.0+
-      'nvim-tree/nvim-web-devicons', -- If you want devicons
-      'stevearc/resession.nvim', -- Optional, for persistent history
+      'lewis6991/gitsigns.nvim',
+      'nvim-tree/nvim-web-devicons',
     },
-    config = function()
-      local get_hex = require('cokeline.hlgroups').get_hl_attr
+    init = function()
+      vim.g.barbar_auto_setup = false
+    end,
+    opts = {
+      animation = true,
+      insert_at_start = true,
+      auto_hide = false,
+      tabpages = true,
+      clickable = true,
+      icons = {
+        buffer_index = false,
+        buffer_number = false,
+        button = '',
+        modified = { button = '●' },
+        pinned = { button = '', filename = true },
 
-      local map = vim.api.nvim_set_keymap
-      map('n', '<Leader>p', '<Plug>(cokeline-switch-prev)', { silent = true })
-      map('n', '<Leader>n', '<Plug>(cokeline-switch-next)', { silent = true })
-      map('n', '<Leader>x', '<Plug>(cokeline-pick-close)', { silent = true })
-
-      local function close_buffer_and_tab(bufnr)
-        local tabpage = vim.fn.tabpagenr()
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        if #vim.api.nvim_list_bufs() == 0 then
-          vim.cmd('tabclose ' .. tabpage)
-        end
-      end
-
-      require('cokeline').setup {
-
-        default_hl = {
-          fg = function(buffer)
-            return buffer.is_focused and get_hex('ColorColumn', 'bg') or get_hex('Normal', 'fg')
-          end,
-          bg = function(buffer)
-            return buffer.is_focused and get_hex('Normal', 'fg') or get_hex('ColorColumn', 'bg')
-          end,
+        diagnostics = {
+          [vim.diagnostic.severity.ERROR] = { enabled = true, icon = 'E:' },
+          [vim.diagnostic.severity.WARN] = { enabled = true, icon = 'W:' },
+          [vim.diagnostic.severity.INFO] = { enabled = false },
+          [vim.diagnostic.severity.HINT] = { enabled = false },
         },
 
-        components = {
-          {
-            text = function(buffer)
-              return ' ' .. buffer.devicon.icon
-            end,
-            fg = function(buffer)
-              return buffer.devicon.color
-            end,
-          },
-          {
-            text = function(buffer)
-              return buffer.unique_prefix
-            end,
-            fg = get_hex('Comment', 'fg'),
-            italic = true,
-          },
-          {
-            text = function(buffer)
-              return buffer.filename .. ' '
-            end,
-            underline = function(buffer)
-              return buffer.is_hovered and not buffer.is_focused
-            end,
-          },
-          {
-            text = '',
-            on_click = function(_, _, _, _, buffer)
-              buffer:delete()
-            end,
-          },
-          {
-            text = ' ',
-          },
+        gitsigns = {
+          added = { enabled = true, icon = '+' },
+          changed = { enabled = true, icon = '~' },
+          deleted = { enabled = true, icon = '-' },
         },
-      }
-      vim.api.nvim_create_autocmd('TabClosed', {
-        callback = function()
-          local current_bufnr = vim.api.nvim_get_current_buf()
-          close_buffer_and_tab(current_bufnr)
-        end,
-      })
+      },
+    },
+    config = function(_, opts)
+      require('barbar').setup(opts)
+
+      -- same keymaps you had with cokeline
+      vim.keymap.set('n', '<leader>p', '<Cmd>BufferPrevious<CR>', { desc = 'Previous buffer' })
+      vim.keymap.set('n', '<leader>n', '<Cmd>BufferNext<CR>', { desc = 'Next buffer' })
+      vim.keymap.set('n', '<leader>x', '<Cmd>BufferClose<CR>', { desc = 'Close buffer' })
+
+      -- bonus keymaps that are nice to have
+      vim.keymap.set('n', '<leader>P', '<Cmd>BufferPin<CR>', { desc = 'Pin buffer' })
+      vim.keymap.set('n', '<leader>bp', '<Cmd>BufferPick<CR>', { desc = 'Pick buffer' })
+      vim.keymap.set('n', '<leader>bd', '<Cmd>BufferCloseAllButCurrent<CR>', { desc = 'Close all but current' })
+
+      -- ACTIVE BUFFER HIGHLIGHTS
+      -- diagnostics
+      vim.api.nvim_set_hl(0, 'BufferCurrentERROR', { bg = 'NONE', fg = '#ff6c6b', bold = true })
+      vim.api.nvim_set_hl(0, 'BufferCurrentWARN', { bg = 'NONE', fg = '#e5c07b', bold = true })
+      -- gitsigns
+      vim.api.nvim_set_hl(0, 'BufferCurrentADDED', { bg = 'NONE', fg = '#98c379', bold = true })
+      vim.api.nvim_set_hl(0, 'BufferCurrentCHANGED', { bg = 'NONE', fg = '#e5c07b', bold = true })
+      vim.api.nvim_set_hl(0, 'BufferCurrentDELETED', { bg = 'NONE', fg = '#e06c75', bold = true })
+
+      -- VISIBLE BUT NOT CURRENT BUFFER HIGHLIGHTS
+      vim.api.nvim_set_hl(0, 'BufferVisibleERROR', { bg = 'NONE', fg = '#ff6c6b' })
+      vim.api.nvim_set_hl(0, 'BufferVisibleWARN', { bg = 'NONE', fg = '#e5c07b' })
+
+      -- INACTIVE BUFFER HIGHLIGHTS (gray like filename)
+      local gray = '#74715f'
+      -- diagnostics
+      vim.api.nvim_set_hl(0, 'BufferInactiveERROR', { bg = 'NONE', fg = gray })
+      vim.api.nvim_set_hl(0, 'BufferInactiveWARN', { bg = 'NONE', fg = gray })
+      -- gitsigns
+      vim.api.nvim_set_hl(0, 'BufferInactiveADDED', { bg = 'NONE', fg = gray })
+      vim.api.nvim_set_hl(0, 'BufferInactiveCHANGED', { bg = 'NONE', fg = gray })
+      vim.api.nvim_set_hl(0, 'BufferInactiveDELETED', { bg = 'NONE', fg = gray })
+
+      -- -- make diagnostics more readable on active buffers
+      -- vim.api.nvim_set_hl(0, 'BufferCurrentERROR', { bg = 'NONE', fg = '#ff6c6b', bold = true })
+      -- vim.api.nvim_set_hl(0, 'BufferCurrentWARN', { bg = 'NONE', fg = '#e5c07b', bold = true })
+      --
+      -- -- also fix for inactive buffers if needed
+      -- vim.api.nvim_set_hl(0, 'BufferVisibleERROR', { bg = 'NONE', fg = '#ff6c6b' })
+      -- vim.api.nvim_set_hl(0, 'BufferVisibleWARN', { bg = 'NONE', fg = '#e5c07b' })
+      --
+      -- vim.api.nvim_set_hl(0, 'BufferCurrentADDED', { bg = 'NONE', fg = '#98c379', bold = true })
+      -- vim.api.nvim_set_hl(0, 'BufferCurrentCHANGED', { bg = 'NONE', fg = '#e5c07b', bold = true })
+      -- vim.api.nvim_set_hl(0, 'BufferCurrentDELETED', { bg = 'NONE', fg = '#e06c75', bold = true })
     end,
   },
   --{ 'neoclide/coc.nvim' },
@@ -684,10 +699,60 @@ require('lazy').setup({
           -- Jump to the definition of the word under your cursor.
           --  This is where a variable was first declared, or where a function is defined, etc.
           --  To jump back, press <C-t>.
-          map('gd', require('telescope.builtin').lsp_definitions, '[G]oto [D]efinition')
+          map('gd', function()
+            -- Custom function to jump directly to definition
+            local params = vim.lsp.util.make_position_params()
+            vim.lsp.buf_request(0, 'textDocument/definition', params, function(err, result, ctx, config)
+              if err then
+                vim.notify('Error: ' .. err.message, vim.log.levels.ERROR)
+                return
+              end
+              if not result or vim.tbl_isempty(result) then
+                vim.notify('No definition found', vim.log.levels.INFO)
+                return
+              end
+              -- Jump to the first result directly
+              if vim.islist(result) then
+                vim.lsp.util.jump_to_location(result[1], 'utf-8', true)
+              else
+                vim.lsp.util.jump_to_location(result, 'utf-8', true)
+              end
+            end)
+          end, '[G]oto [D]efinition')
+
+          map('gs', function()
+            vim.cmd 'vsplit'
+            require('telescope.builtin').lsp_definitions()
+          end, '[G]oto Definition [S]plit')
 
           -- Find references for the word under your cursor.
           map('gr', require('telescope.builtin').lsp_references, '[G]oto [R]eferences')
+
+          -- Alternative: Send references to quickfix list for navigation
+          map('gR', function()
+            vim.lsp.buf.references(nil, {
+              on_list = function(options)
+                vim.fn.setqflist({}, ' ', options)
+                -- Save current window
+                local current_win = vim.api.nvim_get_current_win()
+                -- Find the main editor window (not aerial, not nvim-tree, etc)
+                for _, win in ipairs(vim.api.nvim_list_wins()) do
+                  local buf = vim.api.nvim_win_get_buf(win)
+                  local ft = vim.api.nvim_buf_get_option(buf, 'filetype')
+                  local bt = vim.api.nvim_buf_get_option(buf, 'buftype')
+                  -- Find a normal buffer (not special windows)
+                  if bt == '' and ft ~= 'aerial' and ft ~= 'NvimTree' then
+                    vim.api.nvim_set_current_win(win)
+                    break
+                  end
+                end
+                -- Open quickfix below the main editor window
+                vim.cmd 'below copen 10'
+                -- Return to original window if needed
+                vim.api.nvim_set_current_win(current_win)
+              end,
+            })
+          end, '[G]oto [R]eferences (Quickfix)')
 
           -- Jump to the implementation of the word under your cursor.
           --  Useful when your language has ways of declaring types without an actual implementation.
@@ -805,14 +870,8 @@ require('lazy').setup({
         },
 
         -- gopls = {},
-        pyright = {
-          before_init = function(_, config)
-            config.settings.python.pythonPath = get_python_path(config.root_dir)
-          end,
-          on_attach = on_attach,
-          capabilities = capabilities,
-        },
-        -- rust_analyzer = {},
+        pyright = {},
+        rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
         -- Some languages (like typescript) have entire language plugins that can be useful:
@@ -852,7 +911,7 @@ require('lazy').setup({
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
         'ruff',
-        'pyright',
+        -- 'pyright',
         'black',
         'clangd', -- C++ LSP
         'clang-format', -- C++ formatter
@@ -862,12 +921,20 @@ require('lazy').setup({
         'tex-fmt',
         'shfmt',
         'prettier',
+        'taplo', -- TOML formatter
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
       require('mason-lspconfig').setup {
+        -- Don't automatically install servers not in our list
+        automatic_installation = false,
         handlers = {
           function(server_name)
+            -- Skip jedi-language-server to avoid duplicate Python LSPs
+            if server_name == 'jedi_language_server' then
+              return
+            end
+
             local server = servers[server_name] or {}
             -- This handles overriding only values explicitly passed
             -- by the server configuration above. Useful when disabling
@@ -939,6 +1006,8 @@ require('lazy').setup({
         lua = { 'stylua' },
         -- Conform can also run multiple formatters sequentially
         python = { 'ruff_fix', 'ruff_format', 'isort', 'black' },
+        rust = { 'rustfmt' },
+
         --
         -- You can use a sub-list to tell conform to run *until* a formatter
         -- is found.
@@ -963,6 +1032,7 @@ require('lazy').setup({
         bash = { 'shfmt' },
         sh = { 'shfmt' },
         zsh = { 'shfmt' },
+        toml = { 'taplo' },
       },
       log_level = vim.log.levels.DEBUG,
     },
@@ -1214,6 +1284,10 @@ require('lazy').setup({
         additional_vim_regex_highlighting = { 'ruby' },
       },
       indent = { enable = true, disable = { 'ruby' } },
+      fold = {
+        enable = true,
+        disable = {},
+      },
     },
     config = function(_, opts)
       -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
@@ -1229,6 +1303,35 @@ require('lazy').setup({
       --    - Incremental selection: Included, see `:help nvim-treesitter-incremental-selection-mod`
       --    - Show your current context: https://github.com/nvim-treesitter/nvim-treesitter-context
       --    - Treesitter + textobjects: https://github.com/nvim-treesitter/nvim-treesitter-textobjects
+    end,
+  },
+  {
+    'nvim-treesitter/nvim-treesitter-textobjects',
+    dependencies = { 'nvim-treesitter/nvim-treesitter' },
+    config = function()
+      require('nvim-treesitter.configs').setup {
+        textobjects = {
+          move = {
+            enable = true,
+            goto_next_start = {
+              [']f'] = '@function.outer',
+              [']c'] = '@class.outer',
+            },
+            goto_previous_start = {
+              ['[f'] = '@function.outer',
+              ['[c'] = '@class.outer',
+            },
+            goto_next_end = {
+              [']F'] = '@function.outer',
+              [']C'] = '@class.outer',
+            },
+            goto_previous_end = {
+              ['[F'] = '@function.outer',
+              ['[C'] = '@class.outer',
+            },
+          },
+        },
+      }
     end,
   },
   {
@@ -1325,6 +1428,50 @@ require('lazy').setup({
           vim.keymap.set('n', 'tsc', '<Plug>(vimtex-cmd-toggle-star)', { buffer = true })
         end,
       })
+    end,
+  },
+  {
+    'kevinhwang91/nvim-ufo',
+    dependencies = {
+      'kevinhwang91/promise-async',
+      'nvim-treesitter/nvim-treesitter',
+    },
+    config = function()
+      -- disable native fold column, ufo macht das besser
+      vim.o.foldcolumn = '0'
+      vim.o.foldlevel = 99
+      vim.o.foldlevelstart = 99
+      vim.o.foldenable = true
+
+      require('ufo').setup {
+        provider_selector = function(bufnr, filetype, buftype)
+          return { 'treesitter', 'indent' }
+        end,
+      }
+
+      -- keymaps
+      vim.keymap.set('n', 'zR', require('ufo').openAllFolds, { desc = 'Open all folds' })
+      vim.keymap.set('n', 'zM', require('ufo').closeAllFolds, { desc = 'Close all folds' })
+      vim.keymap.set('n', 'zr', require('ufo').openFoldsExceptKinds, { desc = 'Open folds except kinds' })
+      vim.keymap.set('n', 'zm', require('ufo').closeFoldsWith, { desc = 'Close folds with' })
+
+      -- preview fold
+      vim.keymap.set('n', 'K', function()
+        local winid = require('ufo').peekFoldedLinesUnderCursor()
+        if not winid then
+          vim.lsp.buf.hover()
+        end
+      end)
+
+      -- fold nur functions in python
+      vim.keymap.set('n', '<leader>zf', function()
+        if vim.bo.filetype == 'python' then
+          require('ufo').closeAllFolds()
+          vim.cmd 'silent! g/^\\s*class /normal! zo' -- open classes wieder
+        else
+          require('ufo').closeAllFolds()
+        end
+      end, { desc = 'Fold all functions' })
     end,
   },
 
