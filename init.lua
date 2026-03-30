@@ -84,6 +84,15 @@ I hope you enjoy your Neovim journey,
 P.S. You can delete this when you're done too. It's your config now! :)
 --]]
 
+-- Suppress lspconfig deprecation warning (we already migrated, but mason-lspconfig still triggers it)
+local original_deprecate = vim.deprecate
+vim.deprecate = function(name, ...)
+  if name and name:match "require%('lspconfig'%)" then
+    return
+  end
+  return original_deprecate(name, ...)
+end
+
 -- Set <space> as the leader key
 -- See `:help mapleader`
 --  NOTE: Must happen before plugins are loaded (otherwise wrong leader will be used)
