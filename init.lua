@@ -940,14 +940,16 @@ require('lazy').setup({
             -- by the server configuration above. Useful when disabling
             -- certain features of an LSP (for example, turning off formatting for tsserver)
             server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-            require('lspconfig')[server_name].setup(server)
+            vim.lsp.config[server_name] = server
+            vim.lsp.enable(server_name)
           end,
         },
       }
       -- make sure to have nil manually installed in your system (installation via mason was tricky)
-      require('lspconfig').nil_ls.setup {
-        capabilities = capabilities, -- use the same capabilities from your mason setup
+      vim.lsp.config['nil_ls'] = {
+        capabilities = capabilities,
       }
+      vim.lsp.enable 'nil_ls'
     end,
   },
   {
@@ -1566,8 +1568,8 @@ require('isabelle-lsp').setup {
 --  end,
 --})
 
-local lspconfig = require 'lspconfig'
-lspconfig.isabelle.setup {}
+vim.lsp.config['isabelle'] = {}
+vim.lsp.enable 'isabelle'
 
 vim.api.nvim_create_autocmd('FileType', {
   pattern = '*',
