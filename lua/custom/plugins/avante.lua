@@ -6,14 +6,13 @@ return {
 
   opts = {
     ---@alias Provider "claude" | "openai" | "azure" | "gemini" | "cohere" | "copilot" | string
-    provider = 'opencode',
     acp_providers = {
       ['opencode'] = {
         command = 'opencode',
         args = { 'acp' },
         env = {
-          FIREWORKS_API_KEY = os.getenv('FIREWORKS_API_KEY'),
-          ZAI_CODING_PLAN_API_KEY = os.getenv('ZAI_CODING_PLAN_API_KEY'),
+          FIREWORKS_API_KEY = os.getenv 'FIREWORKS_API_KEY',
+          ZAI_CODING_PLAN_API_KEY = os.getenv 'ZAI_CODING_PLAN_API_KEY',
         },
       },
     },
