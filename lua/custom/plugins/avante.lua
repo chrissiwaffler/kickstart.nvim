@@ -6,14 +6,14 @@ return {
 
   opts = {
     ---@alias Provider "claude" | "openai" | "azure" | "gemini" | "cohere" | "copilot" | string
-    provider = 'claude',
-    providers = {
-      claude = {
-        endpoint = 'https://api.anthropic.com',
-        model = 'claude-3-7-sonnet-latest',
-        extra_request_body = {
-          temperature = 0,
-          max_tokens = 8192,
+    provider = 'opencode',
+    acp_providers = {
+      ['opencode'] = {
+        command = 'opencode',
+        args = { 'acp' },
+        env = {
+          FIREWORKS_API_KEY = os.getenv('FIREWORKS_API_KEY'),
+          ZAI_CODING_PLAN_API_KEY = os.getenv('ZAI_CODING_PLAN_API_KEY'),
         },
       },
     },
