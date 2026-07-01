@@ -1003,7 +1003,7 @@ require('lazy').setup({
           timeout_ms = 1000,
           -- lsp_fallback = not disable_filetypes[vim.bo[bufnr].filetype],
           lsp_fallback = true,
-          async = false,
+          async = true,
           stop_after_first = true,
         }
       end,
