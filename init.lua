@@ -171,8 +171,9 @@ vim.opt.smartcase = true
 -- Keep signcolumn on by default
 vim.opt.signcolumn = 'yes'
 
--- Decrease update time
-vim.opt.updatetime = 100
+-- Decrease update time (also the CursorHold delay for LSP document highlights;
+-- 100 spams the language server while moving around, 250 is kickstart's default)
+vim.opt.updatetime = 250
 
 vim.opt.conceallevel = 1
 
@@ -863,12 +864,14 @@ require('lazy').setup({
             '--completion-style=detailed',
             '--function-arg-placeholders',
             '--fallback-style=llvm',
-            '--query-driver=/usr/bin/g++,/usr/bin/gcc',
-            '--compile-commands-dir=build',
-            -- '-std=c++17', -- TODO: C++ standard
+            -- clangd only queries compilers on this allowlist for system include paths;
+            -- macOS compile_commands.json records /usr/bin/c++ or clang++, not g++
+            '--query-driver=/usr/bin/*,/usr/local/bin/*,/opt/homebrew/bin/*',
+            -- no --compile-commands-dir: clangd searches each parent dir of the edited
+            -- file AND its build/ subdir, so build/compile_commands.json is found from
+            -- any cwd. Per-project C++ standard for headers/loose files: .clangd file.
           },
           init_options = {
-            compilationDatabasePath = 'build',
             clangdFileStatus = true,
           },
           filetypes = { 'c', 'cpp', 'objc', 'objcpp', 'cuda' },
@@ -925,8 +928,7 @@ require('lazy').setup({
         'clangd', -- C++ LSP
         'clang-format', -- C++ formatter
         'cmake-language-server', -- For CMake support
-        'cpptools', -- For debugging support
-        'codelldb', -- Debugger
+        'codelldb', -- C/C++ debug adapter (used by nvim-dap, see kickstart/plugins/debug.lua)
         'tex-fmt',
         'shfmt',
         'prettier',
@@ -976,17 +978,19 @@ require('lazy').setup({
   },
   {
     'pmizio/typescript-tools.nvim',
+    ft = { 'typescript', 'typescriptreact', 'javascript', 'javascriptreact' },
     dependencies = { 'nvim-lua/plenary.nvim', 'neovim/nvim-lspconfig' },
     opts = {},
   },
   { -- Autoformat
     'stevearc/conform.nvim',
-    lazy = false,
+    event = { 'BufWritePre' },
+    cmd = { 'ConformInfo' },
     keys = {
       {
         '<leader>f',
         function()
-          require('conform').format { async = true, lsp_fallback = true, stop_after_first = true }
+          require('conform').format { async = true, lsp_format = 'fallback', stop_after_first = true }
         end,
         mode = '',
         desc = '[F]ormat buffer',
@@ -994,19 +998,12 @@ require('lazy').setup({
     },
     opts = {
       notify_on_error = true,
-      format_on_save = function(bufnr)
-        -- Disable "format_on_save lsp_fallback" for languages that don't
-        -- have a well standardized coding style. You can add additional
-        -- languages here or re-enable it for the disabled ones.
-        local disable_filetypes = { c = true, cpp = true }
-        return {
-          timeout_ms = 1000,
-          -- lsp_fallback = not disable_filetypes[vim.bo[bufnr].filetype],
-          lsp_fallback = true,
-          async = true,
-          stop_after_first = true,
-        }
-      end,
+      -- format_after_save (not format_on_save) runs the formatter in the background,
+      -- so :w returns immediately; the buffer is written again when formatting is done
+      format_after_save = {
+        lsp_format = 'fallback',
+        stop_after_first = true,
+      },
       formatters = {
         tex_fmt = {
           command = 'tex-fmt',
@@ -1045,7 +1042,7 @@ require('lazy').setup({
         zsh = { 'shfmt' },
         toml = { 'taplo' },
       },
-      log_level = vim.log.levels.DEBUG,
+      log_level = vim.log.levels.WARN,
     },
   },
 
@@ -1287,12 +1284,52 @@ require('lazy').setup({
     config = function()
       require('nvim-treesitter').setup {}
 
-      local parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'vim', 'vimdoc', 'python', 'javascript', 'typescript' }
+      -- must contain every filetype the FileType autocmd below starts treesitter for
+      -- (except parsers bundled with Neovim: c, lua, vim, vimdoc, query, markdown, markdown_inline)
+      local parsers = {
+        'bash',
+        'c',
+        'cpp',
+        'css',
+        'diff',
+        'html',
+        'json',
+        'lua',
+        'luadoc',
+        'markdown',
+        'markdown_inline',
+        'vim',
+        'vimdoc',
+        'python',
+        'javascript',
+        'typescript',
+        'yaml',
+      }
       require('nvim-treesitter').install(parsers):wait(300000)
 
       vim.api.nvim_create_autocmd('FileType', {
-        pattern = { 'bash', 'c', 'cpp', 'css', 'diff', 'html', 'javascript', 'json', 'lua', 'luadoc', 'markdown', 'python', 'typescript', 'vim', 'vimdoc', 'yaml' },
-        callback = function() vim.treesitter.start() end,
+        pattern = {
+          'bash',
+          'c',
+          'cpp',
+          'css',
+          'diff',
+          'html',
+          'javascript',
+          'json',
+          'lua',
+          'luadoc',
+          'markdown',
+          'python',
+          'typescript',
+          'vim',
+          'vimdoc',
+          'yaml',
+        },
+        callback = function()
+          -- pcall: a missing/not-yet-installed parser must not error the whole buffer open
+          pcall(vim.treesitter.start)
+        end,
       })
 
       vim.o.foldmethod = 'expr'
@@ -1479,7 +1516,7 @@ require('lazy').setup({
   --  Here are some example plugins that I've included in the Kickstart repository.
   --  Uncomment any of the lines below to enable them (you will need to restart nvim).
   --
-  -- require 'kickstart.plugins.debug',
+  require 'kickstart.plugins.debug', -- C/C++ debugging via codelldb
   -- require 'kickstart.plugins.indent_line',
   -- require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',

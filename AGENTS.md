@@ -113,10 +113,10 @@ npx stylua --check .
 ## NOTES
 
 - `init.lua` is deliberately monolithic (kickstart philosophy). The `lua/custom/plugins/` dir is the modular escape hatch.
-- Kickstart's optional plugins in `lua/kickstart/plugins/` are NOT loaded by default — they must be uncommented in init.lua's lazy.setup (lines 1487-1492).
+- Kickstart's optional plugins in `lua/kickstart/plugins/` are NOT loaded by default — they must be uncommented in init.lua's lazy.setup. Exception: `debug.lua` is enabled (C/C++ debugging via codelldb, lazy-loaded on F5/`<leader>b`).
 - Isabelle/HOL LSP requires manual install at `/Users/chrissi/isabelle_tooling/isabelle-language-server/`.
 - `start_image/blue-eyes` is a compiled binary for the alpha dashboard image — config-specific, not portable.
 - LSP `gd` is overridden with custom function that jumps directly (no Telescope picker) for speed. `gs` opens in split via Telescope.
 - `K` (hover) is overridden by nvim-ufo to peek folds first, falls back to LSP hover if no fold under cursor.
 - Python formatting chain: ruff_fix → ruff_format → isort → black (conform.nvim runs sequentially).
-- C/C++ formatting via clang-format. Compile commands expected in `build/` dir.
+- C/C++ formatting via clang-format (async after save via conform's `format_after_save`). clangd finds `compile_commands.json` in any parent dir of the edited file or its `build/` subdir (CMake: configure with `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`).

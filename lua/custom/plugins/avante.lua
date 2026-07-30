@@ -1,7 +1,8 @@
 return {
   'yetone/avante.nvim',
+  -- VeryLazy defers loading until after the UI is up (lazy = false here used to
+  -- override this and pull avante + all deps into the synchronous startup path)
   event = 'VeryLazy',
-  lazy = false,
   version = '*',
 
   opts = {
