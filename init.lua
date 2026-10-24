@@ -1528,7 +1528,7 @@ require('nvim-tree').setup {
   },
   filters = {
     dotfiles = false,
-    custom = { '*.avanterules' },
+    custom = {},
   },
 }
 -- end of configuration for nvim tree toggle
