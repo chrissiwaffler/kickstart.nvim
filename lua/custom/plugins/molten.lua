@@ -220,7 +220,12 @@ return {
       -- beim ipynb-öffnen: passenden kernel init + outputs importieren
       local imb = function(e)
         vim.schedule(function()
-          local kernels = vim.fn.MoltenAvailableKernels and vim.fn.MoltenAvailableKernels() or {}
+          -- molten-remote-funktionen existieren erst nach :UpdateRemotePlugins + restart
+          if vim.fn.exists '*MoltenAvailableKernels' ~= 1 then
+            vim.notify 'Molten: remote plugin not registered yet — restart nvim after :Lazy sync'
+            return
+          end
+          local kernels = vim.fn.MoltenAvailableKernels()
           local kernel_name = nil
           local ok, meta = pcall(function()
             return vim.json.decode(io.open(e.file, 'r'):read 'a').metadata.kernelspec.name
@@ -237,9 +242,9 @@ return {
             end
           end
           if kernel_name then
-            vim.cmd(('MoltenInit %s'):format(kernel_name))
+            pcall(vim.cmd, ('MoltenInit %s'):format(kernel_name))
           end
-          vim.cmd 'MoltenImportOutput'
+          pcall(vim.cmd, 'MoltenImportOutput')
         end)
       end
       vim.api.nvim_create_autocmd('BufAdd', { pattern = '*.ipynb', callback = imb })
@@ -256,8 +261,14 @@ return {
       vim.api.nvim_create_autocmd('BufWritePost', {
         pattern = '*.ipynb',
         callback = function()
-          if require('molten.status').initialized() == 'Molten' then
-            vim.cmd 'MoltenExportOutput!'
+          if vim.fn.exists '*MoltenExportOutput' ~= 1 then
+            return
+          end
+          local ok, initialized = pcall(function()
+            return require('molten.status').initialized() == 'Molten'
+          end)
+          if ok and initialized then
+            pcall(vim.cmd, 'MoltenExportOutput!')
           end
         end,
       })
