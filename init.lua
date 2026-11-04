@@ -1523,6 +1523,9 @@ require('lazy').setup({
       lazy = '💤 ',
     },
   },
+  -- plugins nicht via luarocks bauen: magick & co kommen aus dem nix-wrapper
+  -- (extraLuaPackages). lazy's luarocks-path kompiliert C-rocks lokal → timeouts.
+  rocks = { enabled = false },
 })
 
 -- configuration for nvim tree toggle
