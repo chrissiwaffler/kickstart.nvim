@@ -879,7 +879,18 @@ require('lazy').setup({
         },
 
         -- gopls = {},
-        pyright = {},
+        pyright = {
+          settings = {
+            python = {
+              analysis = {
+                diagnosticSeverityOverrides = {
+                  -- trailing expression als output-idiom in notebook-cells
+                  reportUnusedExpression = 'none',
+                },
+              },
+            },
+          },
+        },
         rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
