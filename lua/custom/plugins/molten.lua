@@ -513,7 +513,8 @@ return {
         end
         for j = i, #raw do
           local l = raw[j]
-          if not l:match('^<!-- #region') and not l:match('^<!-- #endregion') then
+          -- find(..., true): plain-text — '-' ist in lua-patterns magic
+          if not l:find('<!-- #region', 1, true) and not l:find('<!-- #endregion', 1, true) then
             -- klammern: gsub gibt (string, count) zurück → table.insert würde
             -- beide als (list, pos, value) interpretieren
             table.insert(cleaned, (l:gsub(' pycharm=%b{}', '')))
