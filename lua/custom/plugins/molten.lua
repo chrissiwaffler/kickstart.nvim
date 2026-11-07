@@ -474,8 +474,9 @@ return {
       -- sync: cursor-zelle links → reader scrollt auf die gleiche zelle (anchor-map)
       local reader_win = nil
       local reader_notebook_buf = nil
-      local anchor_to_row = nil -- reader-zeile je erster zell-inhalts-zeile
+      local anchor_rows = nil -- anchor → geordnete liste von reader-zeilen
       local last_sync_anchor = nil
+      local last_sync_row = nil
       local reader_sync_aug = nil
       local reader_aug = vim.api.nvim_create_augroup('molten_reader_sync', { clear = true })
 
@@ -532,11 +533,24 @@ return {
         if not anchor or anchor == last_sync_anchor then
           return
         end
-        local row = anchor_to_row and anchor_to_row[anchor]
-        if not row then
+        local rows = anchor_rows and anchor_rows[anchor]
+        if not rows then
           return
         end
+        -- mehrfach-vorkommen (zwei zellen mit gleichem anker): richtungsabhängig
+        -- die nächste zeile nach der letzten sync-position wählen
+        local row = rows[1]
+        if last_sync_row then
+          for _, r in ipairs(rows) do
+            if r > last_sync_row then
+              row = r
+              break
+            end
+            row = r
+          end
+        end
         last_sync_anchor = anchor
+        last_sync_row = row
         vim.fn.win_execute(reader_win, 'normal! ' .. row .. 'Gzt')
       end
 
@@ -564,7 +578,7 @@ return {
         -- als sync-anchor merken (reader-zeile)
         local raw = vim.split(out, '\n')
         local cleaned = {}
-        anchor_to_row = {}
+        anchor_rows = {}
         local in_fence = false
         local anchor_pending = false
         local i = 1
@@ -590,9 +604,10 @@ return {
           else
             if anchor_pending and l:match('%S') then
               local key = l:gsub('%s+$', '')
-              if anchor_to_row[key] == nil then
-                anchor_to_row[key] = #cleaned + 1 -- zeile, in der der anchor landet
+              if anchor_rows[key] == nil then
+                anchor_rows[key] = {}
               end
+              table.insert(anchor_rows[key], #cleaned + 1)
               anchor_pending = false
             end
             table.insert(cleaned, (l:gsub(' pycharm=%b{}', '')))
@@ -621,6 +636,7 @@ return {
         -- sync: cursor-zelle links treibt die reader-scrollposition
         reader_notebook_buf = vim.api.nvim_get_current_buf()
         last_sync_anchor = nil
+        last_sync_row = nil
         if reader_sync_aug then
           pcall(vim.api.nvim_del_autocmd, reader_sync_aug)
         end
