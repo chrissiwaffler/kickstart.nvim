@@ -268,6 +268,84 @@ return {
       molten_hl()
       vim.api.nvim_create_autocmd('ColorScheme', { callback = molten_hl })
 
+      -- cell-grenzen sichtbar machen: vollbreites band auf jeder `# %%`-marker-zeile
+      -- (extmarks hängen an positionen und wandern mit edits) + marker-text bold/blue
+      -- via syn match (buffer-lokal, zero-maintenance)
+      local band_ns = vim.api.nvim_create_namespace 'molten_cell_bands'
+
+      local hex_blend = function(hex, other, alpha)
+        local ch = function(s, i)
+          return tonumber(s:sub(i, i + 1), 16) or 0
+        end
+        local mix = function(a, b)
+          return math.floor(a + (b - a) * alpha + 0.5)
+        end
+        return string.format(
+          '#%02x%02x%02x',
+          mix(ch(hex, 2), ch(other, 2)),
+          mix(ch(hex, 4), ch(other, 4)),
+          mix(ch(hex, 6), ch(other, 6))
+        )
+      end
+
+      local cell_hl = function()
+        -- band = normal-bg leicht aufgehellt (sonokai-fg als blend-target)
+        local bg = vim.fn.synIDattr(vim.fn.hlID('Normal'), 'bg#')
+        if bg == nil or bg == '' then
+          bg = '#181b1e'
+        end
+        vim.api.nvim_set_hl(0, 'MoltenCellBand', { bg = hex_blend(bg, '#e2e2e3', 0.08) })
+        vim.api.nvim_set_hl(0, 'MoltenCellMarker', { bold = true, fg = '#76cce0' })
+      end
+      cell_hl()
+      vim.api.nvim_create_autocmd('ColorScheme', { callback = cell_hl })
+
+      local place_bands = function(bufnr)
+        if not vim.api.nvim_buf_is_valid(bufnr) or vim.bo[bufnr].buftype ~= '' then
+          return
+        end
+        vim.api.nvim_buf_clear_namespace(bufnr, band_ns, 0, -1)
+        for i, l in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
+          if l:match '^# %%' then
+            vim.api.nvim_buf_set_extmark(bufnr, band_ns, i - 1, 0, { end_row = i, line_hl_group = 'MoltenCellBand' })
+          end
+        end
+      end
+
+      vim.api.nvim_create_autocmd('FileType', {
+        pattern = 'python',
+        callback = function(e)
+          if vim.api.nvim_buf_get_name(e.buf):match '%.ipynb$' then
+            vim.cmd 'syn match MoltenCellMarker "^# %%.*"'
+          end
+        end,
+      })
+
+      -- bands pflegen: initial + bei edits (throttled)
+      local band_pending = false
+      local schedule_bands = function(bufnr)
+        if band_pending then
+          return
+        end
+        band_pending = true
+        vim.defer_fn(function()
+          band_pending = false
+          place_bands(bufnr)
+        end, 50)
+      end
+      vim.api.nvim_create_autocmd('BufEnter', {
+        pattern = '*.ipynb',
+        callback = function(e)
+          place_bands(e.buf)
+        end,
+      })
+      vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
+        pattern = '*.ipynb',
+        callback = function(e)
+          schedule_bands(e.buf)
+        end,
+      })
+
       local map = function(lhs, rhs, desc, mode)
         vim.keymap.set(mode or 'n', lhs, rhs, { desc = desc, silent = true })
       end
