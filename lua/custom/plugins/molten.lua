@@ -514,7 +514,9 @@ return {
         for j = i, #raw do
           local l = raw[j]
           if not l:match('^<!-- #region') and not l:match('^<!-- #endregion') then
-            table.insert(cleaned, l:gsub(' pycharm=%b{}', ''))
+            -- klammern: gsub gibt (string, count) zurück → table.insert würde
+            -- beide als (list, pos, value) interpretieren
+            table.insert(cleaned, (l:gsub(' pycharm=%b{}', '')))
           end
         end
         local buf = vim.api.nvim_create_buf(false, true)
