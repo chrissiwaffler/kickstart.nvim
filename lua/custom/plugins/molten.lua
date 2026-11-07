@@ -29,6 +29,10 @@ return {
       vim.g.molten_auto_open_output = true -- output-fenster geht nach jedem run automatisch auf
       vim.g.molten_virt_text_output = false -- outputs im bordered float statt virt-text
       vim.g.molten_output_win_max_height = 20
+      -- box-look: default-border ist nur ein ━ oben ohne seiten/unterkante
+      vim.g.molten_output_win_border = 'rounded'
+      vim.g.molten_output_crop_border = false -- untere kante bleibt sichtbar
+      vim.g.molten_output_win_style = 'minimal' -- keine zeilennummern im output-float
       vim.g.molten_save_path = vim.fn.stdpath 'data' .. '/molten'
     end,
     config = function()
