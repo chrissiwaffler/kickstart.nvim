@@ -220,8 +220,9 @@ return {
       -- beim ipynb-öffnen: passenden kernel init + outputs importieren
       local imb = function(e)
         vim.schedule(function()
-          -- molten-remote-funktionen existieren erst nach :UpdateRemotePlugins + restart
-          if vim.fn.exists '*MoltenAvailableKernels' ~= 1 then
+          -- molten-remote-funktionen existieren erst nach :UpdateRemotePlugins + restart;
+          -- exists('*fn') ist bei remote-fns 0 bis zum ersten call → command-check nutzen
+          if vim.fn.exists ':MoltenInit' ~= 2 then
             vim.notify 'Molten: remote plugin not registered yet — restart nvim after :Lazy sync'
             return
           end
@@ -261,7 +262,7 @@ return {
       vim.api.nvim_create_autocmd('BufWritePost', {
         pattern = '*.ipynb',
         callback = function()
-          if vim.fn.exists '*MoltenExportOutput' ~= 1 then
+          if vim.fn.exists ':MoltenExportOutput' ~= 2 then
             return
           end
           local ok, initialized = pcall(function()
