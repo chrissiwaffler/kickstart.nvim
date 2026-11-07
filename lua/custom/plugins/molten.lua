@@ -126,7 +126,7 @@ return {
         eval_lines(s, e)
       end
 
-      -- variable-inspector (output als virt-text unter der zeile)
+      -- variable-inspector (läuft durch den kernel, output als window wie jede zelle)
       local inspect_var = function()
         local word = vim.fn.expand '<cword>'
         if word == '' then
@@ -218,11 +218,11 @@ return {
         return name
       end
 
-      local molten_initialized = function()
-        local ok, res = pcall(function()
-          return require('molten.status').initialized() == 'Molten'
-        end)
-        return ok and res
+      -- kernel am aktuellen buffer attached? (MoltenStatusLineInit/.initialized()
+      -- heißt nur 'plugin geladen', nicht 'kernel läuft' → hier ungeeignet)
+      local kernel_attached = function()
+        local ok, kernels = pcall(vim.fn.MoltenRunningKernels, true)
+        return ok and type(kernels) == 'table' and #kernels > 0
       end
 
       -- smart-init: venv finden → spec sicherstellen → kernel starten
@@ -231,7 +231,7 @@ return {
           vim.notify 'Molten: remote plugin not registered yet — restart nvim after :Lazy sync'
           return
         end
-        if molten_initialized() then
+        if kernel_attached() then
           vim.notify 'molten: kernel already running'
           return
         end
@@ -249,16 +249,6 @@ return {
           vim.cmd { cmd = 'MoltenInit', args = { name } }
         end
       end
-
-      -- output-styling: molten linkt MoltenVirtualText per default auf Comment →
-      -- output wäre von comments ununterscheidbar. sonokai-green statt dessen,
-      -- nicht-italic → klar als kernel-output erkennbar. ColorScheme-autocmd hält
-      -- es nach scheme-reloads aufrecht
-      local molten_hl = function()
-        vim.api.nvim_set_hl(0, 'MoltenVirtualText', { fg = '#9ed072' })
-      end
-      molten_hl()
-      vim.api.nvim_create_autocmd('ColorScheme', { callback = molten_hl })
 
       -- cell-grenzen sichtbar machen: vollbreites band auf jeder `# %%`-marker-zeile
       -- (extmarks hängen an positionen und wandern mit edits) + marker-text bold/blue
@@ -342,11 +332,6 @@ return {
       -- erste ausführung im frischen buffer rast in molten's kernel_check, wenn der
       -- auto-init-kernel noch nicht attached ist → pick-pop, run verloren. hier:
       -- run cappen und pollen bis attached (bzw. direkt ausführen ohne venv)
-      local kernel_attached = function()
-        local ok, kernels = pcall(vim.fn.MoltenRunningKernels, true)
-        return ok and type(kernels) == 'table' and #kernels > 0
-      end
-
       local when_ready = function(run)
         if kernel_attached() or detect_venv(vim.fs.dirname(vim.api.nvim_buf_get_name(0))) == nil then
           run()
@@ -519,17 +504,14 @@ return {
         end,
       })
 
-      -- beim speichern: outputs ins .ipynb zurückschreiben
+      -- beim speichern: outputs ins .ipynb zurückschreiben (nur mit attached kernel)
       vim.api.nvim_create_autocmd('BufWritePost', {
         pattern = '*.ipynb',
         callback = function()
           if vim.fn.exists ':MoltenExportOutput' ~= 2 then
             return
           end
-          local ok, initialized = pcall(function()
-            return require('molten.status').initialized() == 'Molten'
-          end)
-          if ok and initialized then
+          if kernel_attached() then
             pcall(vim.cmd, 'MoltenExportOutput!')
           end
         end,
