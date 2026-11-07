@@ -617,7 +617,14 @@ return {
               table.insert(anchor_rows[key], #cleaned + 1)
             end
             if anchor_pending and l:match('%S') then
-              anchor_pending = false -- code-zellen: nur die erste fence-zeile anchorn
+              -- code-zellen: erste fence-content-zeile als anchor (die md-zeilen
+              -- drüber sind schon per-line geankert)
+              local key = l:gsub('%s+$', '')
+              if anchor_rows[key] == nil then
+                anchor_rows[key] = {}
+              end
+              table.insert(anchor_rows[key], #cleaned + 1)
+              anchor_pending = false
             end
             table.insert(cleaned, (l:gsub(' pycharm=%b{}', '')))
           end
