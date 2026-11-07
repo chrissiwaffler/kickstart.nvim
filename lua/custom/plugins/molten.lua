@@ -26,10 +26,8 @@ return {
     lazy = false,
     init = function()
       vim.g.molten_image_provider = 'image.nvim'
-      vim.g.molten_auto_open_output = false
-      vim.g.molten_virt_text_output = true
-      vim.g.molten_virt_lines_off_by_1 = true
-      vim.g.molten_wrap_output = true
+      vim.g.molten_auto_open_output = true -- output-fenster geht nach jedem run automatisch auf
+      vim.g.molten_virt_text_output = false -- outputs im bordered float statt virt-text
       vim.g.molten_output_win_max_height = 20
       vim.g.molten_save_path = vim.fn.stdpath 'data' .. '/molten'
     end,
@@ -532,37 +530,8 @@ return {
         end,
       })
 
-      -- in normalen .py-files: output im float statt virt-text (less noisy)
-      vim.api.nvim_create_autocmd('BufEnter', {
-        pattern = '*.py',
-        callback = function(e)
-          if e.file:match '.otter.' then
-            return
-          end
-          if require('molten.status').initialized() == 'Molten' then
-            vim.fn.MoltenUpdateOption('virt_lines_off_by_1', false)
-            vim.fn.MoltenUpdateOption('virt_text_output', false)
-          else
-            vim.g.molten_virt_lines_off_by_1 = false
-            vim.g.molten_virt_text_output = false
-          end
-        end,
-      })
-      vim.api.nvim_create_autocmd('BufEnter', {
-        pattern = '*.ipynb',
-        callback = function(e)
-          if e.file:match '.otter.' then
-            return
-          end
-          if require('molten.status').initialized() == 'Molten' then
-            vim.fn.MoltenUpdateOption('virt_lines_off_by_1', true)
-            vim.fn.MoltenUpdateOption('virt_text_output', true)
-          else
-            vim.g.molten_virt_lines_off_by_1 = true
-            vim.g.molten_virt_text_output = true
-          end
-        end,
-      })
+      -- outputs rendern jetzt einheitlich im float-window (virt_text_output=false
+      -- in init) → die alten per-buffer virt-text-option-switches sind überflüssig
 
       -- ipython-magics (%foo, !cmd) sind kein valides python → pyright meldet auf jeder
       -- magic-zeile syntax-errors. kernel versteht magics trotzdem → diagnostics in
