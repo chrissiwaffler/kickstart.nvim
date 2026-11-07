@@ -468,7 +468,7 @@ return {
         end
       end, { nargs = 1, complete = 'file' })
 
-      -- reader-view (option C): notebook als gerendertes markdown im centered float.
+      -- reader-view (option A): notebook als gerendertes markdown im right split.
       -- jupytext CLI konvertiert den disk-stand on-demand (--output -), render-markdown
       -- rendert den scratch-buffer (ft=markdown). read-only, q/<Esc> schließt
       local reader_win = nil
@@ -523,26 +523,24 @@ return {
         local buf = vim.api.nvim_create_buf(false, true)
         vim.bo[buf].bufhidden = 'wipe'
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, cleaned)
+        vim.api.nvim_buf_set_name(buf, 'reader: ' .. vim.fs.basename(notebook))
         vim.bo[buf].filetype = 'markdown'
         vim.bo[buf].modifiable = false
         local ui = vim.api.nvim_list_uis()[1]
-        local w = math.floor((ui and ui.width or 120) * 0.8)
-        local h = math.floor((ui and ui.height or 40) * 0.85)
-        reader_win = vim.api.nvim_open_win(buf, false, {
-          relative = 'editor',
-          width = w,
-          height = h,
-          col = math.floor(((ui and ui.width or 120) - w) / 2),
-          row = math.floor(((ui and ui.height or 40) - h) / 2),
-          border = 'rounded',
-          style = 'minimal',
-          title = ' reader: ' .. vim.fs.basename(notebook) .. ' ',
-          title_pos = 'center',
-        })
+        local w = math.floor((ui and ui.width or 120) * 0.42)
+        vim.cmd('rightbelow ' .. w .. 'vsplit')
+        reader_win = vim.api.nvim_get_current_win()
+        vim.api.nvim_win_set_buf(reader_win, buf)
         vim.wo[reader_win].wrap = true
+        vim.wo[reader_win].number = false
+        vim.wo[reader_win].relativenumber = false
+        vim.wo[reader_win].signcolumn = 'no'
+        vim.wo[reader_win].foldcolumn = '0'
         vim.keymap.set('n', 'q', close_reader, { buffer = buf, silent = true })
         vim.keymap.set('n', '<Esc>', close_reader, { buffer = buf, silent = true })
-        -- notebook-buffer geht zu → reader-float mit zu
+        -- fokus im editing-buffer lassen
+        vim.cmd('wincmd p')
+        -- notebook-buffer geht zu → reader-split mit zu
         vim.api.nvim_create_autocmd('BufWipeout', {
           buffer = vim.api.nvim_get_current_buf(),
           once = true,
