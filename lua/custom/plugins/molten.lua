@@ -494,7 +494,8 @@ return {
       local reader_buf = nil
       local reader_notebook_buf = nil
       local reader_notebook_win = nil
-      local anchor_rows = nil -- erste zell-inhalt-zeile → geordnete reader-zeilen
+      local reader_cells = nil -- { start = reader-zeile, anchor = erste inhalt-zeile } je zelle
+      local line_map = nil -- linke buffer-zeile → reader-zeile
       local last_sync_row = nil
       local last_scroll_top = nil
       local reader_sync_aug = nil
@@ -517,66 +518,79 @@ return {
         reader_win = nil
       end
 
-      -- sync: von der cursor-zeile aufwärts zur nächsten geankerten zeile
-      -- (md-zeilen sind alle geankert → zeilen-exakt; code-zellen: die erste
-      -- content-zeile, offset projiziert den rest)
-      -- linkes buffer-line → reader-zeile: von der zeile aufwärts zur nächsten
-      -- geankerten zeile (md: eigene zeile, code: erste content-zeile der zelle),
-      -- dann offset projizieren. richtungshinweis = reader-cursor-zeile
-      local map_line_to_reader = function(nb_line)
-        if not anchor_rows or not (reader_buf and vim.api.nvim_buf_is_valid(reader_buf)) then
-          return nil
+      -- zeilen-map bauen: linke zellen (marker-zeilen) mit reader-zellen paarén
+      -- (sequenziell in notebook-reihenfolge, key-match auf der ersten inhalt-
+      -- zeile bevorzugt; leere zellen überspringen — 62 notebook-zellen aber 61
+      -- md-zellen wegen einer leeren) und innerhalb der zellen 1:1 projizieren
+      -- (jupytext hält content verbatim, marker/fences sind konstante offsets)
+      local build_line_map = function()
+        if not (reader_cells and reader_buf and vim.api.nvim_buf_is_valid(reader_buf) and reader_notebook_buf and vim.api.nvim_buf_is_valid(reader_notebook_buf)) then
+          return
         end
         local nb_lines = vim.api.nvim_buf_get_lines(reader_notebook_buf, 0, -1, false)
-        local marker = 0
-        for i = math.min(nb_line, #nb_lines), 1, -1 do
-          if nb_lines[i]:match '^# %%' then
-            marker = i
-            break
+        local total = vim.api.nvim_buf_line_count(reader_buf)
+        local map = {}
+        local markers = {}
+        for i, l in ipairs(nb_lines) do
+          if l:match '^# %%' then
+            table.insert(markers, i)
           end
         end
-        if marker == 0 then
-          return nil
+        if #markers == 0 then
+          line_map = map
+          return
         end
-        -- lua-pattern: %% = EIN literales % → für '%%' (zwei prozente) %%%%
-        local md = nb_lines[marker]:match('^# %%%% %s*%[markdown%]') ~= nil
-        local found_row, found_left = nil, nil
-        for i = math.max(nb_line, marker + 1), marker + 1, -1 do
-          local l = nb_lines[i]
-          if md then
-            l = html_tags((l:gsub('^#%s?', '', 1)))
+        for r = 1, markers[1] - 1 do
+          map[r] = 1 -- header → reader-anfang
+        end
+        local ri = 1
+        for k = 1, #markers do
+          local mstart = markers[k]
+          local mend = (k < #markers) and (markers[k + 1] - 1) or #nb_lines
+          local md = nb_lines[mstart]:match('^# %%%% %s*%[markdown%]') ~= nil
+          -- erste inhalt-zeile der linken zelle (transformiert, wie beim build)
+          local first = nil
+          for i = mstart + 1, mend do
+            local l = nb_lines[i]
+            if md then
+              l = html_tags((l:gsub('^#%s?', '', 1)))
+            end
+            l = l:gsub('%s+$', '')
+            if l:match '%S' then
+              first = l
+              break
+            end
           end
-          l = l:gsub('%s+$', '')
-          local rows = l:match '%S' and anchor_rows[l] or nil
-          if rows then
-            found_row = rows[1]
-            local prev = nil
-            if reader_win and vim.api.nvim_win_is_valid(reader_win) then
-              local ok, c = pcall(vim.api.nvim_win_get_cursor, reader_win)
-              if ok then
-                prev = c[1]
+          -- reader-zelle paaren: key-match bevorzugt, sonst sequenziell
+          local rstart = nil
+          if first then
+            for c = ri, #reader_cells do
+              if reader_cells[c].anchor == first then
+                rstart = reader_cells[c].start
+                ri = c + 1
+                break
               end
             end
-            if prev then
-              for _, r in ipairs(rows) do
-                if r > prev then
-                  found_row = r
-                  break
-                end
-                found_row = r
-              end
+            if not rstart and ri <= #reader_cells then
+              rstart = reader_cells[ri].start
+              ri = ri + 1
             end
-            found_left = i
-            break
+          end
+          if rstart then
+            local delta = rstart - mstart - (md and 1 or 0)
+            for r = mstart, mend do
+              local rr = r + delta
+              if r == mstart then
+                rr = rstart -- marker → zellbeginn (fence bzw. erste content-zeile)
+              end
+              map[r] = math.min(math.max(rr, 1), total)
+            end
           end
         end
-        if not found_row then
-          return nil
-        end
-        return math.min(math.max(found_row + (nb_line - found_left), 1), vim.api.nvim_buf_line_count(reader_buf))
+        line_map = map
       end
 
-      -- cursor-sync: reader-cursor auf die projizierte zeile + highlight-band
+      -- cursor-sync: reader-cursor auf die gemappte zeile + highlight-band
       local sync_reader = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
           return
@@ -588,7 +602,7 @@ return {
         if cur == last_sync_row then
           return
         end
-        local row = map_line_to_reader(cur)
+        local row = line_map and line_map[cur] or nil
         if not row then
           return
         end
@@ -618,7 +632,7 @@ return {
           return
         end
         last_scroll_top = top
-        local row = map_line_to_reader(top)
+        local row = line_map and line_map[top] or nil
         if not row then
           return
         end
@@ -643,16 +657,17 @@ return {
           vim.notify('reader: jupytext-konvertierung fehlgeschlagen', vim.log.levels.ERROR)
           return
         end
-        -- geräuschfilter + zell-anker: frontmatter, region-marker und pycharm-
-        -- metadata raus; je zelle (fence-open / region-open) die erste inhalt-
-        -- zeile als anchor merken. content-anker, weil zellzählen um leere zellen
-        -- verrutscht (62 notebook-zellen, aber 61 md-starts)
+        -- geräuschfilter + zell-grenzen: frontmatter, region-marker und pycharm-
+        -- metadata raus; je zelle (fence-open / region-open / bare-md-start) die
+        -- start-zeile + erste inhalt-zeile als pairing-anchor merken. content-
+        -- anchoring, weil zellzählen um leere zellen verrutscht (62 notebook-
+        -- zellen, aber 61 md-starts)
         local raw = vim.split(out, '\n')
         local cleaned = {}
-        anchor_rows = {}
+        reader_cells = {}
         local in_fence = false
-        local anchor_pending = false
         local alert = nil
+        local cell_open = nil -- index der offenen zelle in reader_cells
         local i = 1
         if raw[1] == '---' then
           i = 2
@@ -664,30 +679,35 @@ return {
         for j = i, #raw do
           local l = raw[j]
           if l:match('^```') then
+            cell_open = nil -- offene md-zelle schließen
             in_fence = not in_fence
             if in_fence then
-              anchor_pending = true
+              table.insert(reader_cells, { start = #cleaned + 1, anchor = nil })
+              cell_open = #reader_cells
             end
             table.insert(cleaned, (l:gsub(' pycharm=%b{}', '')))
           elseif not in_fence and l:find('<!-- #region', 1, true) then
-            anchor_pending = true
+            table.insert(reader_cells, { start = #cleaned + 1, anchor = nil })
+            cell_open = #reader_cells
           elseif not in_fence and l:find('<!-- #endregion', 1, true) then
-            -- region-marker raus
+            cell_open = nil
           else
             local key, display = l, l
             if in_fence then
-              if anchor_pending and l:match('%S') then
-                -- code-zellen: erste fence-content-zeile als anchor
-                if anchor_rows[key] == nil then
-                  anchor_rows[key] = {}
-                end
-                table.insert(anchor_rows[key], #cleaned + 1)
-                anchor_pending = false
+              if cell_open and reader_cells[cell_open].anchor == nil and l:match('%S') then
+                reader_cells[cell_open].anchor = l:gsub('%s+$', '')
               end
               display = (l:gsub(' pycharm=%b{}', ''))
             else
-              -- md: tags auf gfm abbilden; alert-divs zu gfm-callouts
+              -- bare-md zellstart: keine offene zelle + non-empty → neue zelle
+              if not cell_open and l:match('%S') then
+                table.insert(reader_cells, { start = #cleaned + 1, anchor = nil })
+                cell_open = #reader_cells
+              end
               key = html_tags(l:gsub('%s+$', ''))
+              if cell_open and reader_cells[cell_open].anchor == nil and key:match('%S') then
+                reader_cells[cell_open].anchor = key
+              end
               local class = l:match('<div class="alert alert%-(%w+)"')
               if class then
                 alert = alert_kind[class] or 'WARNING'
@@ -700,12 +720,6 @@ return {
                 if alert then
                   display = '> ' .. display
                 end
-              end
-              if l:match('%S') and key:match('%S') then
-                if anchor_rows[key] == nil then
-                  anchor_rows[key] = {}
-                end
-                table.insert(anchor_rows[key], #cleaned + 1)
               end
             end
             table.insert(cleaned, display)
@@ -737,6 +751,7 @@ return {
         reader_notebook_buf = vim.api.nvim_get_current_buf()
         last_sync_row = nil
         last_scroll_top = nil
+        build_line_map()
         if reader_sync_aug then
           pcall(vim.api.nvim_del_autocmd, reader_sync_aug)
         end
@@ -744,7 +759,10 @@ return {
           group = reader_aug,
           buffer = reader_notebook_buf,
           callback = function()
-            vim.schedule(sync_reader)
+            vim.schedule(function()
+              build_line_map()
+              sync_reader()
+            end)
           end,
         })
         vim.schedule(sync_reader)
