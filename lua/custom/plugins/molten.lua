@@ -645,7 +645,6 @@ return {
         vim.cmd('wincmd p')
         -- sync: cursor-zelle links treibt die reader-scrollposition
         reader_notebook_buf = vim.api.nvim_get_current_buf()
-        last_sync_row = nil
         if reader_sync_aug then
           pcall(vim.api.nvim_del_autocmd, reader_sync_aug)
         end
