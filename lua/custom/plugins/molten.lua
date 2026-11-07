@@ -493,9 +493,12 @@ return {
       local reader_win = nil
       local reader_buf = nil
       local reader_notebook_buf = nil
+      local reader_notebook_win = nil
       local anchor_rows = nil -- erste zell-inhalt-zeile → geordnete reader-zeilen
       local last_sync_row = nil
+      local last_scroll_top = nil
       local reader_sync_aug = nil
+      local reader_scroll_aug = nil
       local reader_sync_ns = vim.api.nvim_create_namespace 'molten_reader_cursor'
       local reader_aug = vim.api.nvim_create_augroup('molten_reader_sync', { clear = true })
 
@@ -504,6 +507,10 @@ return {
           pcall(vim.api.nvim_del_autocmd, reader_sync_aug)
         end
         reader_sync_aug = nil
+        if reader_scroll_aug then
+          pcall(vim.api.nvim_del_autocmd, reader_scroll_aug)
+        end
+        reader_scroll_aug = nil
         if reader_win and vim.api.nvim_win_is_valid(reader_win) then
           vim.api.nvim_win_close(reader_win, true)
         end
@@ -513,6 +520,63 @@ return {
       -- sync: von der cursor-zeile aufwärts zur nächsten geankerten zeile
       -- (md-zeilen sind alle geankert → zeilen-exakt; code-zellen: die erste
       -- content-zeile, offset projiziert den rest)
+      -- linkes buffer-line → reader-zeile: von der zeile aufwärts zur nächsten
+      -- geankerten zeile (md: eigene zeile, code: erste content-zeile der zelle),
+      -- dann offset projizieren. richtungshinweis = reader-cursor-zeile
+      local map_line_to_reader = function(nb_line)
+        if not anchor_rows or not (reader_buf and vim.api.nvim_buf_is_valid(reader_buf)) then
+          return nil
+        end
+        local nb_lines = vim.api.nvim_buf_get_lines(reader_notebook_buf, 0, -1, false)
+        local marker = 0
+        for i = math.min(nb_line, #nb_lines), 1, -1 do
+          if nb_lines[i]:match '^# %%' then
+            marker = i
+            break
+          end
+        end
+        if marker == 0 then
+          return nil
+        end
+        -- lua-pattern: %% = EIN literales % → für '%%' (zwei prozente) %%%%
+        local md = nb_lines[marker]:match('^# %%%% %s*%[markdown%]') ~= nil
+        local found_row, found_left = nil, nil
+        for i = math.max(nb_line, marker + 1), marker + 1, -1 do
+          local l = nb_lines[i]
+          if md then
+            l = html_tags((l:gsub('^#%s?', '', 1)))
+          end
+          l = l:gsub('%s+$', '')
+          local rows = l:match '%S' and anchor_rows[l] or nil
+          if rows then
+            found_row = rows[1]
+            local prev = nil
+            if reader_win and vim.api.nvim_win_is_valid(reader_win) then
+              local ok, c = pcall(vim.api.nvim_win_get_cursor, reader_win)
+              if ok then
+                prev = c[1]
+              end
+            end
+            if prev then
+              for _, r in ipairs(rows) do
+                if r > prev then
+                  found_row = r
+                  break
+                end
+                found_row = r
+              end
+            end
+            found_left = i
+            break
+          end
+        end
+        if not found_row then
+          return nil
+        end
+        return math.min(math.max(found_row + (nb_line - found_left), 1), vim.api.nvim_buf_line_count(reader_buf))
+      end
+
+      -- cursor-sync: reader-cursor auf die projizierte zeile + highlight-band
       local sync_reader = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
           return
@@ -521,50 +585,14 @@ return {
           return
         end
         local cur = vim.api.nvim_win_get_cursor(0)[1]
-        local nb_lines = vim.api.nvim_buf_get_lines(reader_notebook_buf, 0, -1, false)
-        local marker = 0
-        for i = math.min(cur, #nb_lines), 1, -1 do
-          if nb_lines[i]:match '^# %%' then
-            marker = i
-            break
-          end
-        end
-        if marker == 0 or not anchor_rows then
+        if cur == last_sync_row then
           return
         end
-        -- lua-pattern: %% = EIN literales % → für '%%' (zwei prozente) %%%%
-        local md = nb_lines[marker]:match('^# %%%% %s*%[markdown%]') ~= nil
-        local anchor_row_reader, anchor_left_row = nil, nil
-        -- cursor auf dem marker → die zelle AB dem marker syncen (leerer range
-        -- bei cur == marker hätte sonst nie getriggert)
-        for i = math.max(cur, marker + 1), marker + 1, -1 do
-          local l = nb_lines[i]
-          if md then
-            l = html_tags((l:gsub('^#%s?', '', 1)))
-          end
-          l = l:gsub('%s+$', '')
-          local rows = l:match '%S' and anchor_rows[l] or nil
-          if rows then
-            anchor_row_reader = rows[1]
-            if last_sync_row then
-              for _, r in ipairs(rows) do
-                if r > last_sync_row then
-                  anchor_row_reader = r
-                  break
-                end
-                anchor_row_reader = r
-              end
-            end
-            anchor_left_row = i
-            break
-          end
-        end
-        if not anchor_row_reader then
+        local row = map_line_to_reader(cur)
+        if not row then
           return
         end
-        local row = anchor_row_reader + (cur - anchor_left_row)
-        row = math.min(math.max(row, 1), vim.api.nvim_buf_line_count(reader_buf))
-        last_sync_row = row
+        last_sync_row = cur
         vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
         -- aktuelle zeile im reader dezent markieren
         vim.api.nvim_buf_clear_namespace(reader_buf, reader_sync_ns, 0, -1)
@@ -572,6 +600,29 @@ return {
           end_row = row,
           line_hl_group = 'MoltenReaderCursor',
         })
+      end
+
+      -- view-sync: scrollt der notebook-view (cursor bleibt), wandert der reader
+      -- mit — die erste sichtbare zeile links wird auf den reader-top gemappt
+      local sync_reader_scroll = function()
+        if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
+          return
+        end
+        if not (reader_notebook_win and vim.api.nvim_win_is_valid(reader_notebook_win)) then
+          return
+        end
+        local top = vim.api.nvim_win_call(reader_notebook_win, function()
+          return vim.fn.line 'w0'
+        end)
+        if top == last_scroll_top then
+          return
+        end
+        last_scroll_top = top
+        local row = map_line_to_reader(top)
+        if not row then
+          return
+        end
+        vim.fn.win_execute(reader_win, 'normal! ' .. row .. 'Gzt')
       end
 
       vim.api.nvim_create_user_command('NotebookReader', function()
@@ -680,10 +731,12 @@ return {
         vim.keymap.set('n', 'q', close_reader, { buffer = buf, silent = true })
         vim.keymap.set('n', '<Esc>', close_reader, { buffer = buf, silent = true })
         -- fokus im editing-buffer lassen
+        reader_notebook_win = vim.api.nvim_get_current_win()
         vim.cmd('wincmd p')
         -- sync: cursor-zelle links treibt die reader-scrollposition
         reader_notebook_buf = vim.api.nvim_get_current_buf()
         last_sync_row = nil
+        last_scroll_top = nil
         if reader_sync_aug then
           pcall(vim.api.nvim_del_autocmd, reader_sync_aug)
         end
@@ -695,6 +748,20 @@ return {
           end,
         })
         vim.schedule(sync_reader)
+        -- view-sync: scrolls des notebook-fensters mappen auf den reader
+        if reader_scroll_aug then
+          pcall(vim.api.nvim_del_autocmd, reader_scroll_aug)
+        end
+        reader_scroll_aug = vim.api.nvim_create_autocmd('WinScrolled', {
+          group = reader_aug,
+          callback = function(ev)
+            local w = tonumber(ev.data)
+            if w and w ~= reader_notebook_win then
+              return
+            end
+            vim.schedule(sync_reader_scroll)
+          end,
+        })
         -- notebook-buffer geht zu → reader-split mit zu
         vim.api.nvim_create_autocmd('BufWipeout', {
           buffer = vim.api.nvim_get_current_buf(),
