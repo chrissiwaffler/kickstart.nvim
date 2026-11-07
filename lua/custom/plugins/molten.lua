@@ -498,9 +498,28 @@ return {
           vim.notify('reader: jupytext-konvertierung fehlgeschlagen', vim.log.levels.ERROR)
           return
         end
+        -- geräuschfilter: yaml-frontmatter, jupytext-region-marker (<!-- #region … -->)
+        -- und pycharm-metadata an fence-info-strings sind notebook-intern → raus.
+        -- roundtrip-fidilität ist dem reader egal (einbahnstraße)
+        local raw = vim.split(out, '\n')
+        local cleaned = {}
+        local i = 1
+        if raw[1] == '---' then
+          i = 2
+          while i <= #raw and raw[i] ~= '---' do
+            i = i + 1
+          end
+          i = i + 1
+        end
+        for j = i, #raw do
+          local l = raw[j]
+          if not l:match('^<!-- #region') and not l:match('^<!-- #endregion') then
+            table.insert(cleaned, l:gsub(' pycharm=%b{}', ''))
+          end
+        end
         local buf = vim.api.nvim_create_buf(false, true)
         vim.bo[buf].bufhidden = 'wipe'
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(out:gsub('\n$', ''), '\n'))
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, cleaned)
         vim.bo[buf].filetype = 'markdown'
         vim.bo[buf].modifiable = false
         local ui = vim.api.nvim_list_uis()[1]
