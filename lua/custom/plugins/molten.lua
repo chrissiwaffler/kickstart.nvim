@@ -525,36 +525,55 @@ return {
       -- aber jede zelle ist ein eigener scope, imports mitten drin sind normal
       local noise_codes = { E402 = true }
 
+      local filter_diagnostics = function(bufnr)
+        local keep = {}
+        local dirty = false
+        for _, d in ipairs(vim.diagnostic.get(bufnr)) do
+          if is_magic_line(bufnr, d.lnum) or (d.code ~= nil and noise_codes[d.code] == true) then
+            dirty = true
+          else
+            -- nur standard-felder zurückgeben (get() hängt namespace/_extmark_id an)
+            local clean = {
+              lnum = d.lnum,
+              col = d.col,
+              end_lnum = d.end_lnum,
+              end_col = d.end_col,
+              severity = d.severity,
+              message = d.message,
+              source = d.source,
+              code = d.code,
+              user_data = d.user_data,
+            }
+            keep[d.namespace] = keep[d.namespace] or {}
+            table.insert(keep[d.namespace], clean)
+          end
+        end
+        if not dirty then
+          return
+        end
+        for ns, diags in pairs(keep) do
+          vim.diagnostic.set(ns, bufnr, diags)
+        end
+      end
+
+      -- re-entrancy-guard: unser eigenes vim.diagnostic.set feuert DiagnosticChanged
+      -- sync-nested → ohne guard läuft der handler in sich selbst (E218 nesting too
+      -- deep, live-LSP publishs machen's reproduzierbar). ein publish = genau ein
+      -- filter-pass; der nächste echte publish filtert erneut
+      local filtering = false
+      local filter_augroup = vim.api.nvim_create_augroup('molten_diag_filter', { clear = true })
       vim.api.nvim_create_autocmd('DiagnosticChanged', {
+        group = filter_augroup,
         pattern = '*.ipynb',
         callback = function(e)
-          local keep = {}
-          local dirty = false
-          for _, d in ipairs(vim.diagnostic.get(e.buf)) do
-            if is_magic_line(e.buf, d.lnum) or (d.code ~= nil and noise_codes[d.code] == true) then
-              dirty = true
-            else
-              -- nur standard-felder zurückgeben (get() hängt namespace/_extmark_id an)
-              local clean = {
-                lnum = d.lnum,
-                col = d.col,
-                end_lnum = d.end_lnum,
-                end_col = d.end_col,
-                severity = d.severity,
-                message = d.message,
-                source = d.source,
-                code = d.code,
-                user_data = d.user_data,
-              }
-              keep[d.namespace] = keep[d.namespace] or {}
-              table.insert(keep[d.namespace], clean)
-            end
-          end
-          if not dirty then
+          if filtering then
             return
           end
-          for ns, diags in pairs(keep) do
-            vim.diagnostic.set(ns, e.buf, diags)
+          filtering = true
+          local ok, err = pcall(filter_diagnostics, e.buf)
+          filtering = false
+          if not ok then
+            vim.notify('molten: diagnostic filter failed: ' .. tostring(err), vim.log.levels.ERROR)
           end
         end,
       })
