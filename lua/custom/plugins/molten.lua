@@ -33,6 +33,7 @@ return {
       vim.g.molten_output_win_border = 'rounded'
       vim.g.molten_output_crop_border = false -- untere kante bleibt sichtbar
       vim.g.molten_output_win_style = 'minimal' -- keine zeilennummern im output-float
+      vim.g.molten_output_win_cover_gutter = false -- float startet am code, nicht überm gutter
       vim.g.molten_save_path = vim.fn.stdpath 'data' .. '/molten'
     end,
     config = function()
