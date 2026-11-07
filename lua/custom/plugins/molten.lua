@@ -496,8 +496,7 @@ return {
       local reader_notebook_win = nil
       local reader_cells = nil -- { start = reader-zeile, anchor = erste inhalt-zeile } je zelle
       local line_map = nil -- linke buffer-zeile → reader-zeile
-      local last_sync_row = nil
-      local last_scroll_top = nil
+      local last_nb_top = nil
       local reader_sync_aug = nil
       local reader_scroll_aug = nil
       local reader_sync_ns = vim.api.nvim_create_namespace 'molten_reader_cursor'
@@ -590,7 +589,8 @@ return {
         line_map = map
       end
 
-      -- cursor-sync: reader-cursor auf die gemappte zeile + highlight-band
+      -- cursor-sync: die gemappte zeile auf DIESELBE bildschirmhöhe wie der
+      -- cursor setzen (gleicher abstand vom fensterkopf) + highlight-band
       local sync_reader = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
           return
@@ -598,25 +598,25 @@ return {
         if vim.api.nvim_get_current_buf() ~= reader_notebook_buf then
           return
         end
-        local cur = vim.api.nvim_win_get_cursor(0)[1]
-        if cur == last_sync_row then
+        if not (reader_notebook_win and vim.api.nvim_win_is_valid(reader_notebook_win)) then
           return
         end
+        local cur = vim.api.nvim_win_get_cursor(0)[1]
         local row = line_map and line_map[cur] or nil
         if not row then
           return
         end
-        last_sync_row = cur
-        vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
-        -- zielzeile sichtbar halten: außerhalb des views → mittig zentrieren,
-        -- innerhalb → view in ruhe lassen (kein flackern bei zeilenweisen moves)
+        local nb_top = vim.api.nvim_win_call(reader_notebook_win, function()
+          return vim.fn.line 'w0'
+        end)
+        local off = math.max(cur - nb_top, 0) -- cursor-zeile im sichtbereich (0-basiert)
+        local target_top = math.max(row - off, 1)
         vim.api.nvim_win_call(reader_win, function()
-          local w0 = vim.fn.line 'w0'
-          local wlast = vim.fn.line 'w$'
-          if row < w0 or row > wlast - 1 then
-            vim.cmd('normal! ' .. row .. 'Gzz')
+          if vim.fn.line 'w0' ~= target_top then
+            vim.fn.winrestview({ topline = target_top, leftcol = 0, col = 0, curswant = 0 })
           end
         end)
+        vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
         -- aktuelle zeile im reader dezent markieren
         vim.api.nvim_buf_clear_namespace(reader_buf, reader_sync_ns, 0, -1)
         vim.api.nvim_buf_set_extmark(reader_buf, reader_sync_ns, row - 1, 0, {
@@ -625,8 +625,10 @@ return {
         })
       end
 
-      -- view-sync: scrollt der notebook-view (cursor bleibt), wandert der reader
-      -- mit — die erste sichtbare zeile links wird auf den reader-top gemappt
+      -- view-sync: NUR wenn sich der notebook-view geändert hat reagieren —
+      -- WinScrolled kommt für ALLE fenster (data=nil in 0.12.2, das fenster ist
+      -- nicht identifizierbar) → der w0-vergleich trennt notebook-scrolls von
+      -- reader-eigenen scrolls (sonst: snap-back-flicker beim scrollen im reader)
       local sync_reader_scroll = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
           return
@@ -634,18 +636,22 @@ return {
         if not (reader_notebook_win and vim.api.nvim_win_is_valid(reader_notebook_win)) then
           return
         end
-        local top = vim.api.nvim_win_call(reader_notebook_win, function()
+        local nb_top = vim.api.nvim_win_call(reader_notebook_win, function()
           return vim.fn.line 'w0'
         end)
-        if top == last_scroll_top then
+        if nb_top == last_nb_top then
           return
         end
-        last_scroll_top = top
-        local row = line_map and line_map[top] or nil
-        if not row then
+        last_nb_top = nb_top
+        local top_row = line_map and line_map[nb_top] or nil
+        if not top_row then
           return
         end
-        vim.fn.win_execute(reader_win, 'normal! ' .. row .. 'Gzt')
+        vim.api.nvim_win_call(reader_win, function()
+          if vim.fn.line 'w0' ~= top_row then
+            vim.fn.winrestview({ topline = top_row, leftcol = 0, col = 0, curswant = 0 })
+          end
+        end)
       end
 
       vim.api.nvim_create_user_command('NotebookReader', function()
@@ -758,8 +764,7 @@ return {
         vim.cmd('wincmd p')
         -- sync: cursor-zelle links treibt die reader-scrollposition
         reader_notebook_buf = vim.api.nvim_get_current_buf()
-        last_sync_row = nil
-        last_scroll_top = nil
+        last_nb_top = nil
         build_line_map()
         if reader_sync_aug then
           pcall(vim.api.nvim_del_autocmd, reader_sync_aug)
