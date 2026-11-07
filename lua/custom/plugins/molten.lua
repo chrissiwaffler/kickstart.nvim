@@ -347,6 +347,45 @@ return {
         end,
       })
 
+      -- erste ausführung im frischen buffer rast in molten's kernel_check, wenn der
+      -- auto-init-kernel noch nicht attached ist → pick-pop, run verloren. hier:
+      -- run cappen und pollen bis attached (bzw. direkt ausführen ohne venv)
+      local kernel_attached = function()
+        local ok, kernels = pcall(vim.fn.MoltenRunningKernels, true)
+        return ok and type(kernels) == 'table' and #kernels > 0
+      end
+
+      local when_ready = function(run)
+        if kernel_attached() or detect_venv(vim.fs.dirname(vim.api.nvim_buf_get_name(0))) == nil then
+          run()
+          return
+        end
+        local target_buf = vim.api.nvim_get_current_buf()
+        local attempts = 0
+        local timer = vim.uv.new_timer()
+        timer:start(0, 250, vim.schedule_wrap(function()
+          if vim.api.nvim_get_current_buf() ~= target_buf then
+            timer:stop()
+            timer:close()
+            return
+          end
+          if kernel_attached() then
+            timer:stop()
+            timer:close()
+            run()
+            return
+          end
+          attempts = attempts + 1
+          if attempts == 4 then
+            vim.notify 'molten: kernel startet noch — zelle läuft, sobald er attached ist'
+          elseif attempts >= 80 then
+            timer:stop()
+            timer:close()
+            vim.notify('molten: kernel nach 20s nicht attached — :MoltenInfo prüfen', vim.log.levels.WARN)
+          end
+        end))
+      end
+
       local map = function(lhs, rhs, desc, mode)
         vim.keymap.set(mode or 'n', lhs, rhs, { desc = desc, silent = true })
       end
@@ -357,15 +396,38 @@ return {
       map('<leader>irn', ':MoltenRestart!<CR>', 'Nuclear kernel restart')
       map('<leader>is<Space>', ':MoltenInterrupt<CR>', 'Interrupt kernel')
 
-      -- execution (iron muscle memory)
-      map('<leader>ie', run_cell, 'Execute cell')
-      map('<leader>isb', run_cell, 'Execute cell')
-      map('<leader>ien', run_cell_and_next, 'Execute cell + jump next')
-      map('<leader>isl', ':MoltenEvaluateLine<CR>', 'Execute line')
-      map('<leader>isc', ':MoltenEvaluateOperator<CR>', 'Evaluate operator')
-      map('<leader>isc', ':<C-u>MoltenEvaluateVisual<CR>gv', 'Execute selection', 'v')
-      map('<leader>iaa', run_all, 'Execute all cells')
-      map('<leader>iau', run_above, 'Execute all cells up to current')
+      -- execution (iron muscle memory) — alles über when_ready: erste ausführung
+      -- wartet auf den auto-init-kernel statt molten's picker zu triggern
+      map('<leader>ie', function()
+        when_ready(run_cell)
+      end, 'Execute cell')
+      map('<leader>isb', function()
+        when_ready(run_cell)
+      end, 'Execute cell')
+      map('<leader>ien', function()
+        when_ready(run_cell_and_next)
+      end, 'Execute cell + jump next')
+      map('<leader>isl', function()
+        when_ready(function()
+          vim.cmd 'MoltenEvaluateLine'
+        end)
+      end, 'Execute line')
+      map('<leader>isc', function()
+        when_ready(function()
+          vim.cmd 'MoltenEvaluateOperator'
+        end)
+      end, 'Evaluate operator')
+      map('<leader>isc', function()
+        when_ready(function()
+          vim.cmd 'MoltenEvaluateVisual'
+        end)
+      end, 'Execute selection', 'v')
+      map('<leader>iaa', function()
+        when_ready(run_all)
+      end, 'Execute all cells')
+      map('<leader>iau', function()
+        when_ready(run_above)
+      end, 'Execute all cells up to current')
 
       -- navigation
       map('<leader>ij', function()
@@ -379,7 +441,9 @@ return {
       map('<leader>ios', ':noautocmd MoltenEnterOutput<CR>', 'Open output window')
       map('<leader>ioh', ':MoltenHideOutput<CR>', 'Hide output window')
       map('<leader>imd', ':MoltenDelete<CR>', 'Delete cell output')
-      map('<leader>iv', inspect_var, 'Inspect variable under cursor')
+      map('<leader>iv', function()
+        when_ready(inspect_var)
+      end, 'Inspect variable under cursor')
 
       -- leere, valide .ipynb anlegen (jupytext braucht valides format)
       local default_notebook = [[{
