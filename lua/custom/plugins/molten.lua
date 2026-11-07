@@ -517,7 +517,9 @@ return {
         end
         local md = nb_lines[marker]:match('^# %% %s*%[markdown%]') ~= nil
         local anchor_row_reader, anchor_left_row = nil, nil
-        for i = cur, marker + 1, -1 do
+        -- cursor auf dem marker → die zelle AB dem marker syncen (leerer range
+        -- bei cur == marker hätte sonst nie getriggert)
+        for i = math.max(cur, marker + 1), marker + 1, -1 do
           local l = nb_lines[i]
           if md then
             l = (l:gsub('^#%s?', '', 1))
