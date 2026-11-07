@@ -371,6 +371,11 @@ return {
       map('<leader>ii', smart_init, 'Init kernel')
       map('<leader>ir', ':MoltenInfo<CR>', 'Molten info')
       map('<leader>irn', ':MoltenRestart!<CR>', 'Nuclear kernel restart')
+      -- restart + alles neu: kernel-state reset, zellen laufen via when_ready-queue
+      map('<leader>irA', function()
+        vim.cmd 'MoltenRestart!'
+        when_ready(run_all)
+      end, 'Restart kernel + run all cells')
       map('<leader>is<Space>', ':MoltenInterrupt<CR>', 'Interrupt kernel')
 
       -- execution (iron muscle memory) — alles über when_ready: erste ausführung
@@ -417,6 +422,8 @@ return {
       -- outputs
       map('<leader>ios', ':noautocmd MoltenEnterOutput<CR>', 'Open output window')
       map('<leader>ioh', ':MoltenHideOutput<CR>', 'Hide output window')
+      map('<leader>in', ':MoltenNext<CR>', 'Next output window')
+      map('<leader>ip', ':MoltenPrev<CR>', 'Previous output window')
       map('<leader>imd', ':MoltenDelete<CR>', 'Delete cell output')
       map('<leader>iv', function()
         when_ready(inspect_var)
