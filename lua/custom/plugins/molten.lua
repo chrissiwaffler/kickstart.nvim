@@ -279,6 +279,7 @@ return {
           or '#272822'
         vim.api.nvim_set_hl(0, 'MoltenCellBand', { bg = hex_blend(bg, '#e2e2e3', 0.08) })
         vim.api.nvim_set_hl(0, 'MoltenCellMarker', { bold = true, fg = '#76cce0' })
+        vim.api.nvim_set_hl(0, 'MoltenReaderCursor', { bg = hex_blend(bg, '#e2e2e3', 0.14) })
       end
       cell_hl()
       vim.api.nvim_create_autocmd('ColorScheme', { callback = cell_hl })
@@ -473,11 +474,11 @@ return {
       -- rendert den scratch-buffer (ft=markdown). read-only, q/<Esc> schließt.
       -- sync: cursor-zelle links → reader scrollt auf die gleiche zelle (anchor-map)
       local reader_win = nil
+      local reader_buf = nil
       local reader_notebook_buf = nil
-      local anchor_rows = nil -- anchor → geordnete liste von reader-zeilen
-      local last_sync_anchor = nil
       local last_sync_row = nil
       local reader_sync_aug = nil
+      local reader_sync_ns = vim.api.nvim_create_namespace 'molten_reader_cursor'
       local reader_aug = vim.api.nvim_create_augroup('molten_reader_sync', { clear = true })
 
       local close_reader = function()
@@ -491,36 +492,9 @@ return {
         reader_win = nil
       end
 
-      -- erste inhalt-zeile der zelle unterm cursor (md: comment-prefix gestrippt,
-      -- code: verbatim) — identisch mit dem was der reader als anchor bekam
-      local left_anchor = function(bufnr, cur)
-        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        local marker = 0
-        for i = cur, 1, -1 do
-          if lines[i]:match('^# %%') then
-            marker = i
-            break
-          end
-        end
-        if marker == 0 then
-          return nil
-        end
-        local md = lines[marker]:match('^# %% %s*%[markdown%]') ~= nil
-        for i = marker + 1, #lines do
-          if lines[i]:match('^# %%') then
-            return nil -- leere zelle
-          end
-          local l = lines[i]
-          if l:match('%S') then
-            if md then
-              return (l:gsub('^#%s?', '', 1))
-            end
-            return l
-          end
-        end
-        return nil
-      end
-
+      -- zeilen-genaue sync: innerhalb der zellen sind beide sichten 1:1
+      -- (jupytext hält content verbatim), nur marker/fences sind offsets →
+      -- zellgrenzen beider seiten laufen und die cursor-zeile projizieren
       local sync_reader = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
           return
@@ -529,29 +503,57 @@ return {
           return
         end
         local cur = vim.api.nvim_win_get_cursor(0)[1]
-        local anchor = left_anchor(reader_notebook_buf, cur)
-        if not anchor or anchor == last_sync_anchor then
+        if cur == last_sync_row then
           return
         end
-        local rows = anchor_rows and anchor_rows[anchor]
-        if not rows then
-          return
-        end
-        -- mehrfach-vorkommen (zwei zellen mit gleichem anker): richtungsabhängig
-        -- die nächste zeile nach der letzten sync-position wählen
-        local row = rows[1]
-        if last_sync_row then
-          for _, r in ipairs(rows) do
-            if r > last_sync_row then
-              row = r
-              break
-            end
-            row = r
+        local nb_lines = vim.api.nvim_buf_get_lines(reader_notebook_buf, 0, -1, false)
+        local rd_lines = vim.api.nvim_buf_get_lines(reader_buf, 0, -1, false)
+        local lmarks = {}
+        for i, l in ipairs(nb_lines) do
+          if l:match '^# %%' then
+            table.insert(lmarks, i)
           end
         end
-        last_sync_anchor = anchor
-        last_sync_row = row
-        vim.fn.win_execute(reader_win, 'normal! ' .. row .. 'Gzt')
+        local rstarts = {}
+        local in_fence = false
+        for i, l in ipairs(rd_lines) do
+          if l:match '^```' then
+            if not in_fence then
+              table.insert(rstarts, i)
+            end
+            in_fence = not in_fence
+          elseif not in_fence and l:find('<!-- #region', 1, true) then
+            table.insert(rstarts, i)
+          end
+        end
+        local k = 0
+        for idx, m in ipairs(lmarks) do
+          if m < cur then
+            k = idx
+          else
+            break
+          end
+        end
+        local reader_row = 1
+        if k > 0 then
+          local off = cur - lmarks[k] -- 0 = auf dem marker
+          local md = nb_lines[lmarks[k]]:match('^# %% %s*%[markdown%]') ~= nil
+          local rstart = rstarts[k] or math.max(#rd_lines, 1)
+          if md then
+            reader_row = rstart + math.max(off - 1, 0)
+          else
+            reader_row = rstart + off
+          end
+          reader_row = math.min(math.max(reader_row, 1), #rd_lines)
+        end
+        last_sync_row = cur
+        vim.api.nvim_win_set_cursor(reader_win, { reader_row, 0 })
+        -- aktuelle zeile im reader dezent markieren
+        vim.api.nvim_buf_clear_namespace(reader_buf, reader_sync_ns, 0, -1)
+        vim.api.nvim_buf_set_extmark(reader_buf, reader_sync_ns, reader_row - 1, 0, {
+          end_row = reader_row,
+          line_hl_group = 'MoltenReaderCursor',
+        })
       end
 
       vim.api.nvim_create_user_command('NotebookReader', function()
@@ -572,15 +574,10 @@ return {
           vim.notify('reader: jupytext-konvertierung fehlgeschlagen', vim.log.levels.ERROR)
           return
         end
-        -- geräuschfilter + zell-anchor-map: yaml-frontmatter, jupytext-region-marker
-        -- und pycharm-metadata sind notebook-intern → raus. beim walk zellgrenzen
-        -- mitzählen (fence-open / region-open) und je zelle die erste inhalt-zeile
-        -- als sync-anchor merken (reader-zeile)
+        -- geräuschfilter: yaml-frontmatter, jupytext-region-marker und
+        -- pycharm-metadata an fence-info-strings sind notebook-intern → raus
         local raw = vim.split(out, '\n')
         local cleaned = {}
-        anchor_rows = {}
-        local in_fence = false
-        local anchor_pending = false
         local i = 1
         if raw[1] == '---' then
           i = 2
@@ -591,25 +588,10 @@ return {
         end
         for j = i, #raw do
           local l = raw[j]
-          if l:match('^```') then
-            in_fence = not in_fence
-            if in_fence then
-              anchor_pending = true
-            end
-            table.insert(cleaned, (l:gsub(' pycharm=%b{}', '')))
-          elseif not in_fence and l:find('<!-- #region', 1, true) then
-            anchor_pending = true
-          elseif not in_fence and l:find('<!-- #endregion', 1, true) then
-            -- region-marker raus
-          else
-            if anchor_pending and l:match('%S') then
-              local key = l:gsub('%s+$', '')
-              if anchor_rows[key] == nil then
-                anchor_rows[key] = {}
-              end
-              table.insert(anchor_rows[key], #cleaned + 1)
-              anchor_pending = false
-            end
+          -- find(..., true): plain-text — '-' ist in lua-patterns magic
+          if not l:find('<!-- #region', 1, true) and not l:find('<!-- #endregion', 1, true) then
+            -- klammern: gsub gibt (string, count) zurück → table.insert würde
+            -- beide als (list, pos, value) interpretieren
             table.insert(cleaned, (l:gsub(' pycharm=%b{}', '')))
           end
         end
@@ -619,6 +601,7 @@ return {
         vim.api.nvim_buf_set_name(buf, 'reader: ' .. vim.fs.basename(notebook))
         vim.bo[buf].filetype = 'markdown'
         vim.bo[buf].modifiable = false
+        reader_buf = buf
         local ui = vim.api.nvim_list_uis()[1]
         local w = math.floor((ui and ui.width or 120) * 0.42)
         vim.cmd('rightbelow ' .. w .. 'vsplit')
@@ -635,7 +618,6 @@ return {
         vim.cmd('wincmd p')
         -- sync: cursor-zelle links treibt die reader-scrollposition
         reader_notebook_buf = vim.api.nvim_get_current_buf()
-        last_sync_anchor = nil
         last_sync_row = nil
         if reader_sync_aug then
           pcall(vim.api.nvim_del_autocmd, reader_sync_aug)
