@@ -476,6 +476,7 @@ return {
       local reader_win = nil
       local reader_buf = nil
       local reader_notebook_buf = nil
+      local anchor_rows = nil -- erste zell-inhalt-zeile → geordnete reader-zeilen
       local last_sync_row = nil
       local reader_sync_aug = nil
       local reader_sync_ns = vim.api.nvim_create_namespace 'molten_reader_cursor'
@@ -492,9 +493,38 @@ return {
         reader_win = nil
       end
 
-      -- zeilen-genaue sync: innerhalb der zellen sind beide sichten 1:1
-      -- (jupytext hält content verbatim), nur marker/fences sind offsets →
-      -- zellgrenzen beider seiten laufen und die cursor-zeile projizieren
+      -- erste inhalt-zeile der zelle unterm cursor (md: comment-prefix gestrippt,
+      -- code: verbatim) + ihre zeile im linken buffer
+      local left_anchor = function(bufnr, cur)
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        local marker = 0
+        for i = cur, 1, -1 do
+          if lines[i]:match '^# %%' then
+            marker = i
+            break
+          end
+        end
+        if marker == 0 then
+          return nil
+        end
+        local md = lines[marker]:match('^# %% %s*%[markdown%]') ~= nil
+        for i = marker + 1, #lines do
+          if lines[i]:match '^# %%' then
+            return nil -- leere zelle
+          end
+          local l = lines[i]
+          if l:match '%S' then
+            if md then
+              return (l:gsub('^#%s?', '', 1)), i
+            end
+            return l, i
+          end
+        end
+        return nil
+      end
+
+      -- sync: zell-anchor im reader finden (mehrfach-vorkommen richtungsabhängig),
+      -- dann den zeilen-offset innerhalb der zelle projizieren → zeilen-exakt
       local sync_reader = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
           return
@@ -503,55 +533,32 @@ return {
           return
         end
         local cur = vim.api.nvim_win_get_cursor(0)[1]
-        if cur == last_sync_row then
+        local anchor, anchor_left_row = left_anchor(reader_notebook_buf, cur)
+        if not anchor or not anchor_rows then
           return
         end
-        local nb_lines = vim.api.nvim_buf_get_lines(reader_notebook_buf, 0, -1, false)
-        local rd_lines = vim.api.nvim_buf_get_lines(reader_buf, 0, -1, false)
-        local lmarks = {}
-        for i, l in ipairs(nb_lines) do
-          if l:match '^# %%' then
-            table.insert(lmarks, i)
-          end
+        local rows = anchor_rows[anchor]
+        if not rows then
+          return
         end
-        local rstarts = {}
-        local in_fence = false
-        for i, l in ipairs(rd_lines) do
-          if l:match '^```' then
-            if not in_fence then
-              table.insert(rstarts, i)
+        local row = rows[1]
+        if last_sync_row then
+          for _, r in ipairs(rows) do
+            if r > last_sync_row then
+              row = r
+              break
             end
-            in_fence = not in_fence
-          elseif not in_fence and l:find('<!-- #region', 1, true) then
-            table.insert(rstarts, i)
+            row = r
           end
         end
-        local k = 0
-        for idx, m in ipairs(lmarks) do
-          if m < cur then
-            k = idx
-          else
-            break
-          end
-        end
-        local reader_row = 1
-        if k > 0 then
-          local off = cur - lmarks[k] -- 0 = auf dem marker
-          local md = nb_lines[lmarks[k]]:match('^# %% %s*%[markdown%]') ~= nil
-          local rstart = rstarts[k] or math.max(#rd_lines, 1)
-          if md then
-            reader_row = rstart + math.max(off - 1, 0)
-          else
-            reader_row = rstart + off
-          end
-          reader_row = math.min(math.max(reader_row, 1), #rd_lines)
-        end
-        last_sync_row = cur
-        vim.api.nvim_win_set_cursor(reader_win, { reader_row, 0 })
+        row = row + (cur - anchor_left_row)
+        row = math.min(math.max(row, 1), vim.api.nvim_buf_line_count(reader_buf))
+        last_sync_row = row
+        vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
         -- aktuelle zeile im reader dezent markieren
         vim.api.nvim_buf_clear_namespace(reader_buf, reader_sync_ns, 0, -1)
-        vim.api.nvim_buf_set_extmark(reader_buf, reader_sync_ns, reader_row - 1, 0, {
-          end_row = reader_row,
+        vim.api.nvim_buf_set_extmark(reader_buf, reader_sync_ns, row - 1, 0, {
+          end_row = row,
           line_hl_group = 'MoltenReaderCursor',
         })
       end
@@ -574,10 +581,15 @@ return {
           vim.notify('reader: jupytext-konvertierung fehlgeschlagen', vim.log.levels.ERROR)
           return
         end
-        -- geräuschfilter: yaml-frontmatter, jupytext-region-marker und
-        -- pycharm-metadata an fence-info-strings sind notebook-intern → raus
+        -- geräuschfilter + zell-anker: frontmatter, region-marker und pycharm-
+        -- metadata raus; je zelle (fence-open / region-open) die erste inhalt-
+        -- zeile als anchor merken. content-anker, weil zellzählen um leere zellen
+        -- verrutscht (62 notebook-zellen, aber 61 md-starts)
         local raw = vim.split(out, '\n')
         local cleaned = {}
+        anchor_rows = {}
+        local in_fence = false
+        local anchor_pending = false
         local i = 1
         if raw[1] == '---' then
           i = 2
@@ -588,10 +600,25 @@ return {
         end
         for j = i, #raw do
           local l = raw[j]
-          -- find(..., true): plain-text — '-' ist in lua-patterns magic
-          if not l:find('<!-- #region', 1, true) and not l:find('<!-- #endregion', 1, true) then
-            -- klammern: gsub gibt (string, count) zurück → table.insert würde
-            -- beide als (list, pos, value) interpretieren
+          if l:match('^```') then
+            in_fence = not in_fence
+            if in_fence then
+              anchor_pending = true
+            end
+            table.insert(cleaned, (l:gsub(' pycharm=%b{}', '')))
+          elseif not in_fence and l:find('<!-- #region', 1, true) then
+            anchor_pending = true
+          elseif not in_fence and l:find('<!-- #endregion', 1, true) then
+            -- region-marker raus
+          else
+            if anchor_pending and l:match('%S') then
+              local key = l:gsub('%s+$', '')
+              if anchor_rows[key] == nil then
+                anchor_rows[key] = {}
+              end
+              table.insert(anchor_rows[key], #cleaned + 1)
+              anchor_pending = false
+            end
             table.insert(cleaned, (l:gsub(' pycharm=%b{}', '')))
           end
         end
