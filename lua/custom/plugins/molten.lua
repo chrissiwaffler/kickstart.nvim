@@ -258,6 +258,16 @@ return {
         end
       end
 
+      -- output-styling: molten linkt MoltenVirtualText per default auf Comment →
+      -- output wäre von comments ununterscheidbar. sonokai-green statt dessen,
+      -- nicht-italic → klar als kernel-output erkennbar. ColorScheme-autocmd hält
+      -- es nach scheme-reloads aufrecht
+      local molten_hl = function()
+        vim.api.nvim_set_hl(0, 'MoltenVirtualText', { fg = '#9ed072' })
+      end
+      molten_hl()
+      vim.api.nvim_create_autocmd('ColorScheme', { callback = molten_hl })
+
       local map = function(lhs, rhs, desc, mode)
         vim.keymap.set(mode or 'n', lhs, rhs, { desc = desc, silent = true })
       end
