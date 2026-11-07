@@ -477,7 +477,6 @@ return {
       local reader_buf = nil
       local reader_notebook_buf = nil
       local anchor_rows = nil -- erste zell-inhalt-zeile → geordnete reader-zeilen
-      local last_sync_row = nil
       local reader_sync_aug = nil
       local reader_sync_ns = vim.api.nvim_create_namespace 'molten_reader_cursor'
       local reader_aug = vim.api.nvim_create_augroup('molten_reader_sync', { clear = true })
@@ -493,38 +492,9 @@ return {
         reader_win = nil
       end
 
-      -- erste inhalt-zeile der zelle unterm cursor (md: comment-prefix gestrippt,
-      -- code: verbatim) + ihre zeile im linken buffer
-      local left_anchor = function(bufnr, cur)
-        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-        local marker = 0
-        for i = cur, 1, -1 do
-          if lines[i]:match '^# %%' then
-            marker = i
-            break
-          end
-        end
-        if marker == 0 then
-          return nil
-        end
-        local md = lines[marker]:match('^# %% %s*%[markdown%]') ~= nil
-        for i = marker + 1, #lines do
-          if lines[i]:match '^# %%' then
-            return nil -- leere zelle
-          end
-          local l = lines[i]
-          if l:match '%S' then
-            if md then
-              return (l:gsub('^#%s?', '', 1)), i
-            end
-            return l, i
-          end
-        end
-        return nil
-      end
-
-      -- sync: zell-anchor im reader finden (mehrfach-vorkommen richtungsabhängig),
-      -- dann den zeilen-offset innerhalb der zelle projizieren → zeilen-exakt
+      -- sync: die cursor-zelle wird anhand ihrer inhalts-zeilen im reader gefunden
+      -- (erste zeile = kandidaten, folgende zeilen disambiguieren bei doppelten
+      -- zell-preambeln), dann der zeilen-offset innerhalb der zelle projiziert
       local sync_reader = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
           return
@@ -533,27 +503,57 @@ return {
           return
         end
         local cur = vim.api.nvim_win_get_cursor(0)[1]
-        local anchor, anchor_left_row = left_anchor(reader_notebook_buf, cur)
-        if not anchor or not anchor_rows then
+        local nb_lines = vim.api.nvim_buf_get_lines(reader_notebook_buf, 0, -1, false)
+        local marker = 0
+        for i = math.min(cur, #nb_lines), 1, -1 do
+          if nb_lines[i]:match '^# %%' then
+            marker = i
+            break
+          end
+        end
+        if marker == 0 or not anchor_rows then
           return
         end
-        local rows = anchor_rows[anchor]
+        local md = nb_lines[marker]:match('^# %% %s*%[markdown%]') ~= nil
+        local content = {}
+        for i = marker + 1, #nb_lines do
+          if nb_lines[i]:match '^# %%' then
+            break
+          end
+          local l = nb_lines[i]
+          if md then
+            l = (l:gsub('^#%s?', '', 1))
+          end
+          table.insert(content, l:gsub('%s+$', ''))
+        end
+        if #content == 0 then
+          return
+        end
+        local rd_lines = vim.api.nvim_buf_get_lines(reader_buf, 0, -1, false)
+        local rows = anchor_rows[content[1]]
         if not rows then
           return
         end
-        local row = rows[1]
-        if last_sync_row then
-          for _, r in ipairs(rows) do
-            if r > last_sync_row then
-              row = r
+        -- kandidaten scoren: folgezeilen müssen ebenfalls matchen (trennt zellen
+        -- mit identischer erster zeile, z.b. die beiden num_samples-iterationen)
+        local best, best_score = rows[1], -1
+        for _, r in ipairs(rows) do
+          local score = 0
+          for idx = 2, #content do
+            local rl = rd_lines[r + idx - 2]
+            if rl and rl:gsub('%s+$', '') == content[idx] then
+              score = score + 1
+            else
               break
             end
-            row = r
+          end
+          if score > best_score then
+            best_score = score
+            best = r
           end
         end
-        row = row + (cur - anchor_left_row)
-        row = math.min(math.max(row, 1), vim.api.nvim_buf_line_count(reader_buf))
-        last_sync_row = row
+        local row = best + math.max(cur - marker - 1, 0)
+        row = math.min(math.max(row, 1), #rd_lines)
         vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
         -- aktuelle zeile im reader dezent markieren
         vim.api.nvim_buf_clear_namespace(reader_buf, reader_sync_ns, 0, -1)
