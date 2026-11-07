@@ -671,6 +671,10 @@ return {
           close_reader()
           return
         end
+        -- notebook-window VOR dem split capturen — nach rightbelow vsplit ist
+        -- get_current_win() der READER (sonst lesen beide syncs den eigenen w0
+        -- = selbst-referenzielle schleife, der reader driftet zum anfang)
+        local nb_win = vim.api.nvim_get_current_win()
         local notebook = vim.api.nvim_buf_get_name(0)
         if not notebook:match '%.ipynb$' then
           vim.notify('reader: cursor auf ein .ipynb setzen', vim.log.levels.WARN)
@@ -772,7 +776,7 @@ return {
         vim.keymap.set('n', 'q', close_reader, { buffer = buf, silent = true })
         vim.keymap.set('n', '<Esc>', close_reader, { buffer = buf, silent = true })
         -- fokus im editing-buffer lassen
-        reader_notebook_win = vim.api.nvim_get_current_win()
+        reader_notebook_win = nb_win
         vim.cmd('wincmd p')
         -- sync: cursor-zelle links treibt die reader-scrollposition
         reader_notebook_buf = vim.api.nvim_get_current_buf()
