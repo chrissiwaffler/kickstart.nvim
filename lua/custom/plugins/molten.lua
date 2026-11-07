@@ -608,6 +608,15 @@ return {
         end
         last_sync_row = cur
         vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
+        -- zielzeile sichtbar halten: außerhalb des views → mittig zentrieren,
+        -- innerhalb → view in ruhe lassen (kein flackern bei zeilenweisen moves)
+        vim.api.nvim_win_call(reader_win, function()
+          local w0 = vim.fn.line 'w0'
+          local w$ = vim.fn.line 'w$'
+          if row < w0 or row > w$ - 1 then
+            vim.cmd('normal! ' .. row .. 'Gzz')
+          end
+        end)
         -- aktuelle zeile im reader dezent markieren
         vim.api.nvim_buf_clear_namespace(reader_buf, reader_sync_ns, 0, -1)
         vim.api.nvim_buf_set_extmark(reader_buf, reader_sync_ns, row - 1, 0, {
