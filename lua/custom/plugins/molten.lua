@@ -624,6 +624,11 @@ return {
             vim.cmd(('execute "normal! %d\\<C-y>"'):format(-diff))
           end
         end)
+        -- baseline für den scroll-sync nachführen: unser eigenes C-e feuert
+        -- WinScrolled (data=nil, alle fenster) — ohne update würde der scroll-
+        -- sync den reader auf map[nb_top] zurücktoplinen (die zwei syncs
+        -- kämpfen gegeneinander = das flackern)
+        last_nb_top = nb_top
         -- aktuelle zeile im reader dezent markieren
         vim.api.nvim_buf_clear_namespace(reader_buf, reader_sync_ns, 0, -1)
         vim.api.nvim_buf_set_extmark(reader_buf, reader_sync_ns, row - 1, 0, {
