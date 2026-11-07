@@ -84,27 +84,20 @@ return {
         return ranges
       end
 
-      -- bereich als molten-cell ausführen (fake-visual setzt '< '> marks)
+      -- bereich als molten-cell ausführen — MoltenEvaluateRange direkt mit dem
+      -- zeilen-span statt fake-visual: keine '< '>marks, kein visual-modus. fake-
+      -- visual hing an marks, die beim ersten run einer session noch unset sind
+      -- → molten: 'No visual selection found'
       local eval_lines = function(s, e)
         if s > e then
           return
         end
-        vim.cmd.normal { string.format('%dGV%dG', s, e), bang = true }
-        vim.cmd 'MoltenEvaluateVisual'
-        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<Esc>', true, false, true), 'n', true)
-      end
-
-      local restore_cursor = function(cb)
-        local cur = vim.api.nvim_win_get_cursor(0)
-        cb()
-        pcall(vim.api.nvim_win_set_cursor, 0, cur)
+        vim.fn.MoltenEvaluateRange(s, e)
       end
 
       local run_cell = function()
-        restore_cursor(function()
-          local s, e = cell_bounds()
-          eval_lines(s, e)
-        end)
+        local s, e = cell_bounds()
+        eval_lines(s, e)
       end
 
       local run_cell_and_next = function()
@@ -113,25 +106,21 @@ return {
       end
 
       local run_all = function()
-        restore_cursor(function()
-          for _, r in ipairs(cell_ranges()) do
-            eval_lines(r[1], r[2])
-          end
-        end)
+        for _, r in ipairs(cell_ranges()) do
+          eval_lines(r[1], r[2])
+        end
       end
 
       local run_above = function()
         local cur = vim.api.nvim_win_get_cursor(0)[1]
-        restore_cursor(function()
-          for _, r in ipairs(cell_ranges()) do
-            if r[2] <= cur then
-              eval_lines(r[1], r[2])
-            end
+        for _, r in ipairs(cell_ranges()) do
+          if r[2] <= cur then
+            eval_lines(r[1], r[2])
           end
-          -- aktuelle zelle inklusive
-          local s, e = cell_bounds()
-          eval_lines(s, e)
-        end)
+        end
+        -- aktuelle zelle inklusive
+        local s, e = cell_bounds()
+        eval_lines(s, e)
       end
 
       -- variable-inspector (output als virt-text unter der zeile)
