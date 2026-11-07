@@ -609,14 +609,21 @@ return {
         local nb_top = vim.api.nvim_win_call(reader_notebook_win, function()
           return vim.fn.line 'w0'
         end)
-        local off = math.max(cur - nb_top, 0) -- cursor-zeile im sichtbereich (0-basiert)
-        local target_top = math.max(row - off, 1)
+        -- cursor-screen-offset im notebook (1-basiert als winline); reader-cursor
+        -- setzen, dann per winline-diff auf dieselbe bildschirmhöhe bringen —
+        -- CTRL-E/Y scrollen screen-rows, also wrap-aware (der reader wrapt md)
+        local off = math.max(cur - nb_top, 0)
+        vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
         vim.api.nvim_win_call(reader_win, function()
-          if vim.fn.line 'w0' ~= target_top then
-            vim.fn.winrestview({ topline = target_top, leftcol = 0, col = 0, curswant = 0 })
+          local want = off + 1
+          local cline = vim.fn.winline()
+          local diff = cline - want
+          if diff > 0 then
+            vim.cmd(('execute "normal! %d\\<C-e>"'):format(diff))
+          elseif diff < 0 then
+            vim.cmd(('execute "normal! %d\\<C-y>"'):format(-diff))
           end
         end)
-        vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
         -- aktuelle zeile im reader dezent markieren
         vim.api.nvim_buf_clear_namespace(reader_buf, reader_sync_ns, 0, -1)
         vim.api.nvim_buf_set_extmark(reader_buf, reader_sync_ns, row - 1, 0, {
