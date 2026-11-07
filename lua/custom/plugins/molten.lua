@@ -524,7 +524,7 @@ return {
           if md then
             l = (l:gsub('^#%s?', '', 1))
           end
-          table.insert(content, l:gsub('%s+$', ''))
+          table.insert(content, (l:gsub('%s+$', '')))
         end
         if #content == 0 then
           return
