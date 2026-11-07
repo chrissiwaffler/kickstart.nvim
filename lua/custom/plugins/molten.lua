@@ -612,8 +612,8 @@ return {
         -- innerhalb → view in ruhe lassen (kein flackern bei zeilenweisen moves)
         vim.api.nvim_win_call(reader_win, function()
           local w0 = vim.fn.line 'w0'
-          local w$ = vim.fn.line 'w$'
-          if row < w0 or row > w$ - 1 then
+          local wlast = vim.fn.line 'w$'
+          if row < w0 or row > wlast - 1 then
             vim.cmd('normal! ' .. row .. 'Gzz')
           end
         end)
