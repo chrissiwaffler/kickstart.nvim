@@ -515,7 +515,8 @@ return {
         if marker == 0 or not anchor_rows then
           return
         end
-        local md = nb_lines[marker]:match('^# %% %s*%[markdown%]') ~= nil
+        -- lua-pattern: %% = EIN literales % → für '%%' (zwei prozente) %%%%
+        local md = nb_lines[marker]:match('^# %%%% %s*%[markdown%]') ~= nil
         local anchor_row_reader, anchor_left_row = nil, nil
         -- cursor auf dem marker → die zelle AB dem marker syncen (leerer range
         -- bei cur == marker hätte sonst nie getriggert)
