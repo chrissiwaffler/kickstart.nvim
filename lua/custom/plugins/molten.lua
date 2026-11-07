@@ -520,13 +520,18 @@ return {
         return line:find('^%%') ~= nil or line:find('^!') ~= nil
       end
 
+      -- regeln die im notebook-kontext per konstruktion false-positive sind:
+      -- E402 (import nicht am anfang) — ruff sieht den buffer als flaches modul,
+      -- aber jede zelle ist ein eigener scope, imports mitten drin sind normal
+      local noise_codes = { E402 = true }
+
       vim.api.nvim_create_autocmd('DiagnosticChanged', {
         pattern = '*.ipynb',
         callback = function(e)
           local keep = {}
           local dirty = false
           for _, d in ipairs(vim.diagnostic.get(e.buf)) do
-            if is_magic_line(e.buf, d.lnum) then
+            if is_magic_line(e.buf, d.lnum) or (d.code ~= nil and noise_codes[d.code] == true) then
               dirty = true
             else
               -- nur standard-felder zurückgeben (get() hängt namespace/_extmark_id an)
