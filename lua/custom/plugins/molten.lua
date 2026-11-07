@@ -468,6 +468,68 @@ return {
         end
       end, { nargs = 1, complete = 'file' })
 
+      -- reader-view (option C): notebook als gerendertes markdown im centered float.
+      -- jupytext CLI konvertiert den disk-stand on-demand (--output -), render-markdown
+      -- rendert den scratch-buffer (ft=markdown). read-only, q/<Esc> schließt
+      local reader_win = nil
+
+      local close_reader = function()
+        if reader_win and vim.api.nvim_win_is_valid(reader_win) then
+          vim.api.nvim_win_close(reader_win, true)
+        end
+        reader_win = nil
+      end
+
+      vim.api.nvim_create_user_command('NotebookReader', function()
+        if reader_win and vim.api.nvim_win_is_valid(reader_win) then
+          close_reader()
+          return
+        end
+        local notebook = vim.api.nvim_buf_get_name(0)
+        if not notebook:match '%.ipynb$' then
+          vim.notify('reader: cursor auf ein .ipynb setzen', vim.log.levels.WARN)
+          return
+        end
+        if vim.bo.modified then
+          vim.notify 'reader: notebook hat ungespeicherte änderungen — :w um sie anzuzeigen'
+        end
+        local out = vim.fn.system { 'jupytext', '--to', 'md', '--output', '-', notebook }
+        if vim.v.shell_error ~= 0 or out == '' then
+          vim.notify('reader: jupytext-konvertierung fehlgeschlagen', vim.log.levels.ERROR)
+          return
+        end
+        local buf = vim.api.nvim_create_buf(false, true)
+        vim.bo[buf].bufhidden = 'wipe'
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(out:gsub('\n$', ''), '\n'))
+        vim.bo[buf].filetype = 'markdown'
+        vim.bo[buf].modifiable = false
+        local ui = vim.api.nvim_list_uis()[1]
+        local w = math.floor((ui and ui.width or 120) * 0.8)
+        local h = math.floor((ui and ui.height or 40) * 0.85)
+        reader_win = vim.api.nvim_open_win(buf, false, {
+          relative = 'editor',
+          width = w,
+          height = h,
+          col = math.floor(((ui and ui.width or 120) - w) / 2),
+          row = math.floor(((ui and ui.height or 40) - h) / 2),
+          border = 'rounded',
+          style = 'minimal',
+          title = ' reader: ' .. vim.fs.basename(notebook) .. ' ',
+          title_pos = 'center',
+        })
+        vim.wo[reader_win].wrap = true
+        vim.keymap.set('n', 'q', close_reader, { buffer = buf, silent = true })
+        vim.keymap.set('n', '<Esc>', close_reader, { buffer = buf, silent = true })
+        -- notebook-buffer geht zu → reader-float mit zu
+        vim.api.nvim_create_autocmd('BufWipeout', {
+          buffer = vim.api.nvim_get_current_buf(),
+          once = true,
+          callback = close_reader,
+        })
+      end, {})
+
+      map('<leader>im', ':NotebookReader<CR>', 'Toggle notebook reader view')
+
       -- beim ipynb-öffnen: passenden kernel init + outputs importieren
       local imb = function(e)
         vim.schedule(function()
