@@ -422,6 +422,49 @@ return {
         end,
       })
 
+      -- ipython-magics (%foo, !cmd) sind kein valides python → pyright meldet auf jeder
+      -- magic-zeile syntax-errors. kernel versteht magics trotzdem → diagnostics in
+      -- notebook-buffern live filtern: zeilen die mit %/! beginnen raus, real errors bleiben.
+      -- message-agnostisch (pyright-formulierungen variieren), selbst-heilend bei republish
+      local is_magic_line = function(bufnr, lnum)
+        local line = vim.api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, false)[1] or ''
+        return line:find('^%%') ~= nil or line:find('^!') ~= nil
+      end
+
+      vim.api.nvim_create_autocmd('DiagnosticChanged', {
+        pattern = '*.ipynb',
+        callback = function(e)
+          local keep = {}
+          local dirty = false
+          for _, d in ipairs(vim.diagnostic.get(e.buf)) do
+            if is_magic_line(e.buf, d.lnum) then
+              dirty = true
+            else
+              -- nur standard-felder zurückgeben (get() hängt namespace/_extmark_id an)
+              local clean = {
+                lnum = d.lnum,
+                col = d.col,
+                end_lnum = d.end_lnum,
+                end_col = d.end_col,
+                severity = d.severity,
+                message = d.message,
+                source = d.source,
+                code = d.code,
+                user_data = d.user_data,
+              }
+              keep[d.namespace] = keep[d.namespace] or {}
+              table.insert(keep[d.namespace], clean)
+            end
+          end
+          if not dirty then
+            return
+          end
+          for ns, diags in pairs(keep) do
+            vim.diagnostic.set(ns, e.buf, diags)
+          end
+        end,
+      })
+
       local ok, wk = pcall(require, 'which-key')
       if ok then
         wk.add { { '<leader>i', group = '[I]Python / Molten' } }
