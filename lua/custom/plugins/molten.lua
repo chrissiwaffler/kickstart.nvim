@@ -144,12 +144,126 @@ return {
         vim.fn.MoltenEvaluateArgument(code)
       end
 
+      -- venv-detection + automatische kernelspec-registrierung
+      -- (ersetzt manuelles `python -m ipykernel install --user --name <projekt>`)
+      local is_venv = function(dir)
+        return dir ~= nil and vim.uv.fs_stat(dir .. '/bin/python') ~= nil
+      end
+
+      local path_hash = function(s)
+        local h = 0
+        for i = 1, #s do
+          h = (h * 31 + s:byte(i)) % 65536
+        end
+        return string.format('%04x', h)
+      end
+
+      -- activation-äquivalent: $VIRTUAL_ENV/$CONDA_PREFIX, sonst aufwärts vom
+      -- notebook bis git-root: erstes dir mit .venv|venv + bin/python drin
+      local detect_venv = function(start_dir)
+        local env = os.getenv 'VIRTUAL_ENV' or os.getenv 'CONDA_PREFIX'
+        if env and is_venv(env) then
+          return env
+        end
+        local dir = vim.fs.normalize(start_dir)
+        local bound = vim.fs.root(dir, '.git') or vim.uv.os_homedir()
+        while dir do
+          for _, name in ipairs { '.venv', 'venv' } do
+            local cand = dir .. '/' .. name
+            if is_venv(cand) then
+              return cand
+            end
+          end
+          if dir == bound or dir == vim.fs.dirname(dir) then
+            return nil
+          end
+          dir = vim.fs.dirname(dir)
+        end
+        return nil
+      end
+
+      local has_ipykernel = function(venv)
+        return vim.fn.glob(venv .. '/lib/python3.*/site-packages/ipykernel/__init__.py') ~= ''
+      end
+
+      local kernels_dir = function()
+        if vim.uv.os_uname().sysname == 'Darwin' then
+          return vim.fn.expand '~/Library/Jupyter/kernels'
+        end
+        return vim.fn.expand '~/.local/share/jupyter/kernels'
+      end
+
+      -- schreibt kernel.json wie `ipykernel install --user` es täte (nur ohne logos).
+      -- name = projekt-basename; kollision mit fremdem venv → `-<hash>`-suffix statt overwrite
+      local ensure_spec = function(venv)
+        local python = venv .. '/bin/python'
+        local project = vim.fs.basename(vim.fs.dirname(venv))
+        local name = project
+        local spec_path = kernels_dir() .. '/' .. name .. '/kernel.json'
+        if vim.uv.fs_stat(spec_path) then
+          local file = io.open(spec_path, 'r')
+          local ok, existing = pcall(function()
+            return vim.json.decode(file:read 'a')
+          end)
+          if ok and existing and existing.argv and existing.argv[1] == python then
+            return name -- gleiche venv → idempotent
+          end
+          name = project .. '-' .. path_hash(python)
+          spec_path = kernels_dir() .. '/' .. name .. '/kernel.json'
+        end
+        vim.fn.mkdir(vim.fs.dirname(spec_path), 'p')
+        local file = io.open(spec_path, 'w')
+        if not file then
+          vim.notify('molten: cannot write ' .. spec_path, vim.log.levels.ERROR)
+          return nil
+        end
+        file:write(vim.json.encode {
+          argv = { python, '-m', 'ipykernel_launcher', '-f', '{connection_file}' },
+          display_name = 'Python (' .. project .. ')',
+          language = 'python',
+        })
+        file:close()
+        return name
+      end
+
+      local molten_initialized = function()
+        local ok, res = pcall(function()
+          return require('molten.status').initialized() == 'Molten'
+        end)
+        return ok and res
+      end
+
+      -- smart-init: venv finden → spec sicherstellen → kernel starten
+      local smart_init = function()
+        if vim.fn.exists ':MoltenInit' ~= 2 then
+          vim.notify 'Molten: remote plugin not registered yet — restart nvim after :Lazy sync'
+          return
+        end
+        if molten_initialized() then
+          vim.notify 'molten: kernel already running'
+          return
+        end
+        local venv = detect_venv(vim.fs.dirname(vim.api.nvim_buf_get_name(0)))
+        if not venv then
+          vim.cmd 'MoltenInit' -- kein venv → molten's eigener picker
+          return
+        end
+        if not has_ipykernel(venv) then
+          vim.notify('molten: no ipykernel in ' .. venv .. ' — run: uv pip install ipykernel', vim.log.levels.WARN)
+          return
+        end
+        local name = ensure_spec(venv)
+        if name then
+          vim.cmd { cmd = 'MoltenInit', args = { name } }
+        end
+      end
+
       local map = function(lhs, rhs, desc, mode)
         vim.keymap.set(mode or 'n', lhs, rhs, { desc = desc, silent = true })
       end
 
       -- kernel
-      map('<leader>ii', ':MoltenInit<CR>', 'Init kernel')
+      map('<leader>ii', smart_init, 'Init kernel')
       map('<leader>ir', ':MoltenInfo<CR>', 'Molten info')
       map('<leader>irn', ':MoltenRestart!<CR>', 'Nuclear kernel restart')
       map('<leader>is<Space>', ':MoltenInterrupt<CR>', 'Interrupt kernel')
@@ -231,19 +345,21 @@ return {
           local ok, meta = pcall(function()
             return vim.json.decode(io.open(e.file, 'r'):read 'a').metadata.kernelspec.name
           end)
-          if ok and vim.tbl_contains(kernels, meta) then
+          if ok and meta and vim.tbl_contains(kernels, meta) then
             kernel_name = meta
           else
-            local venv = os.getenv 'VIRTUAL_ENV' or os.getenv 'CONDA_PREFIX'
+            -- kein passender kernelspec → venv finden + spec registrieren (idempotent)
+            local venv = detect_venv(vim.fs.dirname(e.file))
             if venv then
-              local cand = string.match(venv, '/.+/(.+)')
-              if vim.tbl_contains(kernels, cand) then
-                kernel_name = cand
+              if has_ipykernel(venv) then
+                kernel_name = ensure_spec(venv)
+              else
+                vim.notify('molten: no ipykernel in ' .. venv .. ' — run: uv pip install ipykernel', vim.log.levels.WARN)
               end
             end
           end
           if kernel_name then
-            pcall(vim.cmd, ('MoltenInit %s'):format(kernel_name))
+            pcall(vim.cmd, { cmd = 'MoltenInit', args = { kernel_name } })
           end
           pcall(vim.cmd, 'MoltenImportOutput')
         end)
