@@ -469,6 +469,23 @@ return {
         end
       end, { nargs = 1, complete = 'file' })
 
+      -- html→markdown für den reader: die übungs-notebooks nutzen <div class="alert
+      -- …">-callouts mit h3/p/b/code — render-markdown ist ein markdown-renderer
+      -- und zeigt html-elemente roh an. pro zeile (zeilenerhaltend, damit die
+      -- sync-anchors zeilengenau bleiben): tags auf gfm abbilden, alert-divs zu
+      -- gfm-callouts ([!CAUTION] etc.) die render-markdown als boxen zeichnet
+      local alert_kind = { danger = 'CAUTION', warning = 'WARNING', info = 'INFO', success = 'TIP', note = 'NOTE' }
+      local html_tags = function(l)
+        l = l:gsub('<h%d>', '**'):gsub('</h%d>', '**')
+        l = l:gsub('<b>', '**'):gsub('</b>', '**')
+        l = l:gsub('<strong>', '**'):gsub('</strong>', '**')
+        l = l:gsub('<em>', '*'):gsub('</em>', '*')
+        l = l:gsub('<code>', '`'):gsub('</code>', '`')
+        l = l:gsub('<p>%s*', ''):gsub('</p>', '')
+        l = l:gsub('<hr>%s*/?>', '---')
+        return l
+      end
+
       -- reader-view (option A): notebook als gerendertes markdown im right split.
       -- jupytext CLI konvertiert den disk-stand on-demand (--output -), render-markdown
       -- rendert den scratch-buffer (ft=markdown). read-only, q/<Esc> schließt.
@@ -523,7 +540,7 @@ return {
         for i = math.max(cur, marker + 1), marker + 1, -1 do
           local l = nb_lines[i]
           if md then
-            l = (l:gsub('^#%s?', '', 1))
+            l = html_tags((l:gsub('^#%s?', '', 1)))
           end
           l = l:gsub('%s+$', '')
           local rows = l:match '%S' and anchor_rows[l] or nil
@@ -584,6 +601,7 @@ return {
         anchor_rows = {}
         local in_fence = false
         local anchor_pending = false
+        local alert = nil
         local i = 1
         if raw[1] == '---' then
           i = 2
@@ -605,28 +623,41 @@ return {
           elseif not in_fence and l:find('<!-- #endregion', 1, true) then
             -- region-marker raus
           else
-            -- md-zeilen (region-content UND bare-md ohne metadata): jede non-empty
-            -- zeile bekommt einen anchor → zeilen-exakter sync in md-zellen.
-            -- bare-md zellen haben kein region-marker → ohne per-line anchors
-            -- wären sie unsyncbar (jupytext wrapped nur zellen mit metadata)
-            if not in_fence and l:match('%S') then
-              local key = l:gsub('%s+$', '')
-              if anchor_rows[key] == nil then
-                anchor_rows[key] = {}
+            local key, display = l, l
+            if in_fence then
+              if anchor_pending and l:match('%S') then
+                -- code-zellen: erste fence-content-zeile als anchor
+                if anchor_rows[key] == nil then
+                  anchor_rows[key] = {}
+                end
+                table.insert(anchor_rows[key], #cleaned + 1)
+                anchor_pending = false
               end
-              table.insert(anchor_rows[key], #cleaned + 1)
-            end
-            if anchor_pending and l:match('%S') then
-              -- code-zellen: erste fence-content-zeile als anchor (die md-zeilen
-              -- drüber sind schon per-line geankert)
-              local key = l:gsub('%s+$', '')
-              if anchor_rows[key] == nil then
-                anchor_rows[key] = {}
+              display = (l:gsub(' pycharm=%b{}', ''))
+            else
+              -- md: tags auf gfm abbilden; alert-divs zu gfm-callouts
+              key = html_tags(l:gsub('%s+$', ''))
+              local class = l:match('<div class="alert alert%-(%w+)"')
+              if class then
+                alert = alert_kind[class] or 'WARNING'
+                display = '> [!' .. alert .. ']'
+              elseif l:match('^</div>') then
+                alert = nil
+                display = ''
+              else
+                display = html_tags(l)
+                if alert then
+                  display = '> ' .. display
+                end
               end
-              table.insert(anchor_rows[key], #cleaned + 1)
-              anchor_pending = false
+              if l:match('%S') and key:match('%S') then
+                if anchor_rows[key] == nil then
+                  anchor_rows[key] = {}
+                end
+                table.insert(anchor_rows[key], #cleaned + 1)
+              end
             end
-            table.insert(cleaned, (l:gsub(' pycharm=%b{}', '')))
+            table.insert(cleaned, display)
           end
         end
         local buf = vim.api.nvim_create_buf(false, true)
