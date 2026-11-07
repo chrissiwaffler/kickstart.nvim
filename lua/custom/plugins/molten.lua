@@ -289,11 +289,12 @@ return {
       end
 
       local cell_hl = function()
-        -- band = normal-bg leicht aufgehellt (sonokai-fg als blend-target)
-        local bg = vim.fn.synIDattr(vim.fn.hlID('Normal'), 'bg#')
-        if bg == nil or bg == '' then
-          bg = '#181b1e'
-        end
+        -- band = normal-bg leicht aufgehellt; nvim_get_hl liefert truecolor-int,
+        -- kleine ints wären cterm-indizes → dann fallback (sonokai #272822)
+        local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = 'Normal', link = false })
+        local bg = (ok and type(hl) == 'table' and type(hl.bg) == 'number' and hl.bg > 0x10000)
+            and string.format('#%06x', hl.bg)
+          or '#272822'
         vim.api.nvim_set_hl(0, 'MoltenCellBand', { bg = hex_blend(bg, '#e2e2e3', 0.08) })
         vim.api.nvim_set_hl(0, 'MoltenCellMarker', { bold = true, fg = '#76cce0' })
       end
