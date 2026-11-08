@@ -633,10 +633,18 @@ return {
           start_row = nb_top - 1,
           end_row = marker - 1,
         })
-        local off = (ok and type(th) == 'table' and th.all) or math.max(marker - nb_top, 0)
-        vim.api.nvim_win_set_cursor(reader_win, { cell_changed and rstart or row, 0 })
+        local marker_off = (ok and type(th) == 'table' and th.all) or math.max(marker - nb_top, 0)
+        local anchor_row, want
+        if cell_changed then
+          -- zell-snap: reader-zellstart auf die marker-screen-offset
+          anchor_row, want = rstart, marker_off + 1
+        else
+          -- innerhalb der zelle: cursor-zeile auf ihren EIGENEN screen-offset
+          -- (marker-offset würde um cur-marker rows verrutschen)
+          anchor_row, want = row, math.max(cur - nb_top, 0) + 1
+        end
+        vim.api.nvim_win_set_cursor(reader_win, { anchor_row, 0 })
         vim.api.nvim_win_call(reader_win, function()
-          local want = off + 1
           local diff = vim.fn.winline() - want
           if diff > 0 then
             vim.cmd(('execute "normal! %d\\<C-e>"'):format(diff))
