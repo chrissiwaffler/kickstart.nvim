@@ -639,9 +639,13 @@ return {
           -- zell-snap: reader-zellstart auf die marker-screen-offset
           anchor_row, want = rstart, marker_off + 1
         else
-          -- innerhalb der zelle: cursor-zeile auf ihren EIGENEN screen-offset
-          -- (marker-offset würde um cur-marker rows verrutschen)
-          anchor_row, want = row, math.max(cur - nb_top, 0) + 1
+          -- innerhalb der zelle: cursor-zeile auf ihre EIGENE screen-position —
+          -- winline() im notebook-window ist die wrap-aware wahrheit (logische
+          -- offsets unterzählen, weil linke kommentarzeilen umbrechen)
+          anchor_row = row
+          want = vim.api.nvim_win_call(reader_notebook_win, function()
+            return vim.fn.winline()
+          end)
         end
         vim.api.nvim_win_set_cursor(reader_win, { anchor_row, 0 })
         vim.api.nvim_win_call(reader_win, function()
