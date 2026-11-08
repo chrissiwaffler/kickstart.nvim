@@ -622,13 +622,6 @@ return {
       -- zelle zeilen-exakt weiterverfolgen. highlight-band immer auf der
       -- gemappten cursor-zeile
       local last_cell_marker = nil
-      local dbg = function(msg)
-        local f = io.open('/tmp/molten_sync.log', 'a')
-        if f then
-          f:write(msg .. '\n')
-          f:close()
-        end
-      end
 
       local sync_reader = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
@@ -667,7 +660,6 @@ return {
         -- wrap-fortsetzungszeile am fensteranfang)
         local sp = vim.fn.screenpos(reader_notebook_win, marker, 1)
         local marker_off = (sp.row and sp.row > 0) and (sp.row - 1) or math.max(marker - nb_top, 0)
-        dbg(('cur=%d marker=%d cell_changed=%s nb_top=%d sp_row=%s marker_off=%d'):format(cur, marker, tostring(cell_changed), nb_top, tostring(sp.row), marker_off))
         local anchor_row, want
         if cell_changed then
           -- zell-snap: reader-zellstart auf die marker-screen-offset
@@ -683,15 +675,22 @@ return {
         end
         vim.api.nvim_win_set_cursor(reader_win, { anchor_row, 0 })
         local topline = align_topline(reader_win, anchor_row, want)
-        dbg(('anchor=%d want=%d topline=%d'):format(anchor_row, want, topline))
-        local before = vim.api.nvim_win_call(reader_win, function() return vim.fn.line 'w0' end)
-        if before ~= topline then
-          vim.api.nvim_win_call(reader_win, function()
+        vim.api.nvim_win_call(reader_win, function()
+          if vim.fn.line 'w0' ~= topline then
             vim.fn.winrestview({ topline = topline, leftcol = 0, col = 0, curswant = 0 })
-          end)
-        end
-        local after = vim.api.nvim_win_call(reader_win, function() return vim.fn.line 'w0' end)
-        dbg(('topline_before=%d topline_set=%d w0_after=%d (erwartet %d)'):format(before, topline, after, topline))
+          end
+          -- feinkorrektur: die topline-suche quantisiert auf wrap-groesse (eine
+          -- k-zeilige wrap-zeile überspringt k-1 ziel-offsets) — den rest mit
+          -- einzelnem C-e/C-y ausgleichen (screen-rows, wrap-aware). dispatch
+          -- via replace_termcodes: execute/normal! string-escaping ist broken
+          -- (headless-verifiziert: 5<C-e> scrollete 44 statt 5)
+          local diff = vim.fn.winline() - want
+          if diff > 0 then
+            vim.cmd.normal { vim.api.nvim_replace_termcodes(diff .. '<C-e>', true, false, true), bang = true }
+          elseif diff < 0 then
+            vim.cmd.normal { vim.api.nvim_replace_termcodes((-diff) .. '<C-y>', true, false, true), bang = true }
+          end
+        end)
         if cell_changed then
           -- nach dem snap auf die gemappte cursor-zeile (liegt in-view)
           vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
