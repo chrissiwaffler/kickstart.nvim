@@ -623,8 +623,8 @@ return {
       -- gemappten cursor-zeile
       local last_cell_marker = nil
       local last_sync_lnum = nil
-
-      local sync_reader = function()
+      local sync_reader = function(force)
+        force = force == true
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
           return
         end
@@ -641,7 +641,7 @@ return {
         -- gleich-logische zeile (bewegung durch wrap-segmente einer umbrochenen
         -- zeile feuert CursorMoved pro segment): view und band stehen schon
         -- richtig → nur bei zeilenwechsel neu ausrichten
-        if cur == last_sync_lnum then
+        if cur == last_sync_lnum and not force then
           return
         end
         local nb_lines = vim.api.nvim_buf_get_lines(reader_notebook_buf, 0, -1, false)
@@ -682,6 +682,7 @@ return {
         end
         vim.api.nvim_win_set_cursor(reader_win, { anchor_row, 0 })
         local topline = align_topline(reader_win, anchor_row, want)
+        local okh, thh = pcall(vim.api.nvim_win_text_height, reader_win, { start_row = topline - 1, end_row = anchor_row - 2 })
         vim.api.nvim_win_call(reader_win, function()
           if vim.fn.line 'w0' ~= topline then
             vim.fn.winrestview({ topline = topline, leftcol = 0, col = 0, curswant = 0 })
@@ -743,6 +744,18 @@ return {
             vim.fn.winrestview({ topline = top_row, leftcol = 0, col = 0, curswant = 0 })
           end
         end)
+        -- cursor-zeile nach dem groben topline-move noch sichtbar? -> cursor-
+        -- sync hat vorrang: fein-align zerstoert das grobe mapping
+        local cur = vim.api.nvim_win_get_cursor(reader_notebook_win)[1]
+        local crow = line_map and line_map[cur] or nil
+        if crow then
+          local visible = vim.api.nvim_win_call(reader_win, function()
+            return crow >= vim.fn.line 'w0' and crow <= vim.fn.line 'w$'
+          end)
+          if visible then
+            sync_reader(true)
+          end
+        end
       end
 
       vim.api.nvim_create_user_command('NotebookReader', function()
