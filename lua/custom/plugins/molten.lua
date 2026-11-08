@@ -622,6 +622,7 @@ return {
       -- zelle zeilen-exakt weiterverfolgen. highlight-band immer auf der
       -- gemappten cursor-zeile
       local last_cell_marker = nil
+      local last_sync_lnum = nil
 
       local sync_reader = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
@@ -637,6 +638,12 @@ return {
           return
         end
         local cur = vim.api.nvim_win_get_cursor(0)[1]
+        -- gleich-logische zeile (bewegung durch wrap-segmente einer umbrochenen
+        -- zeile feuert CursorMoved pro segment): view und band stehen schon
+        -- richtig → nur bei zeilenwechsel neu ausrichten
+        if cur == last_sync_lnum then
+          return
+        end
         local nb_lines = vim.api.nvim_buf_get_lines(reader_notebook_buf, 0, -1, false)
         local marker = 0
         for i = math.min(cur, #nb_lines), 1, -1 do
@@ -700,6 +707,7 @@ return {
         -- sync den reader auf map[nb_top] zurücktoplinen (die zwei syncs
         -- kämpfen gegeneinander = das flackern)
         last_nb_top = nb_top
+        last_sync_lnum = cur
         -- aktuelle zeile im reader dezent markieren
         vim.api.nvim_buf_clear_namespace(reader_buf, reader_sync_ns, 0, -1)
         vim.api.nvim_buf_set_extmark(reader_buf, reader_sync_ns, row - 1, 0, {
@@ -852,6 +860,7 @@ return {
         -- sync: cursor-zelle links treibt die reader-scrollposition
         reader_notebook_buf = vim.api.nvim_get_current_buf()
         last_nb_top = nil
+        last_sync_lnum = nil
         build_line_map()
         if reader_sync_aug then
           pcall(vim.api.nvim_del_autocmd, reader_sync_aug)
