@@ -589,8 +589,13 @@ return {
         line_map = map
       end
 
-      -- cursor-sync: die gemappte zeile auf DIESELBE bildschirmhöhe wie der
-      -- cursor setzen (gleicher abstand vom fensterkopf) + highlight-band
+      -- cursor-sync: zellwechsel → zell-ANFÄNGE auf dieselbe bildschirmhöhe
+      -- snappen (wrap-aware via nvim_win_text_height — logische zeilen driften,
+      -- weil md-links wrappt und der reader kompakter rendert); innerhalb der
+      -- zelle zeilen-exakt weiterverfolgen. highlight-band immer auf der
+      -- gemappten cursor-zeile
+      local last_cell_marker = nil
+
       local sync_reader = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
           return
@@ -601,29 +606,48 @@ return {
         if not (reader_notebook_win and vim.api.nvim_win_is_valid(reader_notebook_win)) then
           return
         end
-        local cur = vim.api.nvim_win_get_cursor(0)[1]
-        local row = line_map and line_map[cur] or nil
-        if not row then
+        if not line_map then
           return
         end
+        local cur = vim.api.nvim_win_get_cursor(0)[1]
+        local nb_lines = vim.api.nvim_buf_get_lines(reader_notebook_buf, 0, -1, false)
+        local marker = 0
+        for i = math.min(cur, #nb_lines), 1, -1 do
+          if nb_lines[i]:match '^# %%' then
+            marker = i
+            break
+          end
+        end
+        if marker == 0 or not line_map[marker] then
+          return
+        end
+        local rstart = line_map[marker] -- reader-zeile des zellbeginns
+        local row = line_map[cur] or rstart
+        local cell_changed = marker ~= last_cell_marker
+        last_cell_marker = marker
         local nb_top = vim.api.nvim_win_call(reader_notebook_win, function()
           return vim.fn.line 'w0'
         end)
-        -- cursor-screen-offset im notebook (1-basiert als winline); reader-cursor
-        -- setzen, dann per winline-diff auf dieselbe bildschirmhöhe bringen —
-        -- CTRL-E/Y scrollen screen-rows, also wrap-aware (der reader wrapt md)
-        local off = math.max(cur - nb_top, 0)
-        vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
+        -- screen-offset der marker-zeile im notebook-view (wrap-aware, 0-basiert)
+        local ok, th = pcall(vim.api.nvim_win_text_height, reader_notebook_win, {
+          start_row = nb_top - 1,
+          end_row = marker - 1,
+        })
+        local off = (ok and type(th) == 'table' and th.all) or math.max(marker - nb_top, 0)
+        vim.api.nvim_win_set_cursor(reader_win, { cell_changed and rstart or row, 0 })
         vim.api.nvim_win_call(reader_win, function()
           local want = off + 1
-          local cline = vim.fn.winline()
-          local diff = cline - want
+          local diff = vim.fn.winline() - want
           if diff > 0 then
             vim.cmd(('execute "normal! %d\\<C-e>"'):format(diff))
           elseif diff < 0 then
             vim.cmd(('execute "normal! %d\\<C-y>"'):format(-diff))
           end
         end)
+        if cell_changed then
+          -- nach dem snap auf die gemappte cursor-zeile (liegt in-view)
+          vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
+        end
         -- baseline für den scroll-sync nachführen: unser eigenes C-e feuert
         -- WinScrolled (data=nil, alle fenster) — ohne update würde der scroll-
         -- sync den reader auf map[nb_top] zurücktoplinen (die zwei syncs
