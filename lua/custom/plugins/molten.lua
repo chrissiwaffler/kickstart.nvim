@@ -667,6 +667,10 @@ return {
         -- wrap-fortsetzungszeile am fensteranfang)
         local sp = vim.fn.screenpos(reader_notebook_win, marker, 1)
         local marker_off = (sp.row and sp.row > 0) and (sp.row - 1) or math.max(marker - nb_top, 0)
+        -- baseline VOR dem adjust setzen: C-e/C-y feuert WinScrolled sync —
+        -- der scroll-handler vergleicht nb_top und muss hier no-op bleiben,
+        -- sonst überschreibt er die fein-ausrichtung (winline driftete +5)
+        last_nb_top = nb_top
         local anchor_row, want
         if cell_changed then
           -- zell-snap: reader-zellstart auf die marker-screen-offset
@@ -703,11 +707,6 @@ return {
           -- nach dem snap auf die gemappte cursor-zeile (liegt in-view)
           vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
         end
-        -- baseline für den scroll-sync nachführen: unser eigenes C-e feuert
-        -- WinScrolled (data=nil, alle fenster) — ohne update würde der scroll-
-        -- sync den reader auf map[nb_top] zurücktoplinen (die zwei syncs
-        -- kämpfen gegeneinander = das flackern)
-        last_nb_top = nb_top
         last_sync_lnum = cur
         -- aktuelle zeile im reader dezent markieren
         vim.api.nvim_buf_clear_namespace(reader_buf, reader_sync_ns, 0, -1)
