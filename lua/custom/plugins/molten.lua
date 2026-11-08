@@ -589,6 +589,31 @@ return {
         line_map = map
       end
 
+      -- topline suchen, die den anchor bei der ziel-screen-zeile platziert:
+      -- text_height(top..anchor-1) == want-1 (wrap-aware, binäre suche — die
+      -- C-e-key-variante ist unter win_call unzuverlässig)
+      local align_topline = function(win, anchor, want)
+        local bufnr = vim.api.nvim_win_get_buf(win)
+        local total = vim.api.nvim_buf_line_count(bufnr)
+        local lo, hi = 1, math.max(anchor, 1)
+        local best = math.max(anchor, 1)
+        while lo <= hi do
+          local mid = math.floor((lo + hi) / 2)
+          local ok, th = pcall(vim.api.nvim_win_text_height, win, {
+            start_row = mid - 1,
+            end_row = anchor - 1,
+          })
+          local h = (ok and type(th) == 'table' and th.all) or (anchor - mid)
+          if h <= want - 1 then
+            best = mid
+            hi = mid - 1
+          else
+            lo = mid + 1
+          end
+        end
+        return best
+      end
+
       -- cursor-sync: zellwechsel → zell-ANFÄNGE auf dieselbe bildschirmhöhe
       -- snappen (wrap-aware via nvim_win_text_height — logische zeilen driften,
       -- weil md-links wrappt und der reader kompakter rendert); innerhalb der
@@ -647,14 +672,14 @@ return {
           end)
         end
         vim.api.nvim_win_set_cursor(reader_win, { anchor_row, 0 })
-        vim.api.nvim_win_call(reader_win, function()
-          local diff = vim.fn.winline() - want
-          if diff > 0 then
-            vim.cmd(('execute "normal! %d\\<C-e>"'):format(diff))
-          elseif diff < 0 then
-            vim.cmd(('execute "normal! %d\\<C-y>"'):format(-diff))
-          end
-        end)
+        local topline = align_topline(reader_win, anchor_row, want)
+        if vim.api.nvim_win_call(reader_win, function()
+          return vim.fn.line 'w0'
+        end) ~= topline then
+          vim.api.nvim_win_call(reader_win, function()
+            vim.fn.winrestview({ topline = topline, leftcol = 0, col = 0, curswant = 0 })
+          end)
+        end
         if cell_changed then
           -- nach dem snap auf die gemappte cursor-zeile (liegt in-view)
           vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
