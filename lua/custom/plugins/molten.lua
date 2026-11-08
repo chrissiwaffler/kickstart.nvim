@@ -628,12 +628,11 @@ return {
         local nb_top = vim.api.nvim_win_call(reader_notebook_win, function()
           return vim.fn.line 'w0'
         end)
-        -- screen-offset der marker-zeile im notebook-view (wrap-aware, 0-basiert)
-        local ok, th = pcall(vim.api.nvim_win_text_height, reader_notebook_win, {
-          start_row = nb_top - 1,
-          end_row = marker - 1,
-        })
-        local marker_off = (ok and type(th) == 'table' and th.all) or math.max(marker - nb_top, 0)
+        -- screen-offset der marker-zeile im notebook-view: screenpos ist die
+        -- wrap-aware wahrheit (text_height ab w0 verliert die teil-sichtbare
+        -- wrap-fortsetzungszeile am fensteranfang)
+        local sp = vim.fn.screenpos(reader_notebook_win, marker, 1)
+        local marker_off = (sp.row and sp.row > 0) and (sp.row - 1) or math.max(marker - nb_top, 0)
         local anchor_row, want
         if cell_changed then
           -- zell-snap: reader-zellstart auf die marker-screen-offset
