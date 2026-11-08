@@ -692,15 +692,22 @@ return {
             vim.fn.winrestview({ topline = topline, leftcol = 0, col = 0, curswant = 0 })
           end
           -- feinkorrektur: die topline-suche quantisiert auf wrap-groesse (eine
-          -- k-zeilige wrap-zeile überspringt k-1 ziel-offsets) — den rest mit
-          -- einzelnem C-e/C-y ausgleichen (screen-rows, wrap-aware). dispatch
-          -- via replace_termcodes: execute/normal! string-escaping ist broken
-          -- (headless-verifiziert: 5<C-e> scrollete 44 statt 5)
-          local diff = vim.fn.winline() - want
-          if diff > 0 then
-            vim.cmd.normal { vim.api.nvim_replace_termcodes(diff .. '<C-e>', true, false, true), bang = true }
-          elseif diff < 0 then
-            vim.cmd.normal { vim.api.nvim_replace_termcodes((-diff) .. '<C-y>', true, false, true), bang = true }
+          -- 3-zeilig gerenderte paragraph-zeile überspringt 2 ziel-offsets).
+          -- rest = Ist-rows-über-anchor minus Soll-rows, ausgeglichen mit
+          -- C-e/C-y = exakt 1 screen-row pro schritt (dispatch via
+          -- replace_termcodes — execute/normal! escaping ist broken: 5<C-e>
+          -- scrollte 44 statt 5, headless-verifiziert)
+          local ok, th = pcall(vim.api.nvim_win_text_height, reader_win, {
+            start_row = topline - 1,
+            end_row = anchor_row - 2,
+          })
+          if ok and type(th) == 'table' and th.all then
+            local diff = th.all - (want - 1)
+            if diff > 0 then
+              vim.cmd.normal { vim.api.nvim_replace_termcodes(diff .. '<C-e>', true, false, true), bang = true }
+            elseif diff < 0 then
+              vim.cmd.normal { vim.api.nvim_replace_termcodes((-diff) .. '<C-y>', true, false, true), bang = true }
+            end
           end
         end)
         if cell_changed then
