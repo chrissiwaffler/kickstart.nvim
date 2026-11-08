@@ -590,18 +590,20 @@ return {
       end
 
       -- topline suchen, die den anchor bei der ziel-screen-zeile platziert:
-      -- text_height(top..anchor-1) == want-1 (wrap-aware, binäre suche — die
-      -- C-e-key-variante ist unter win_call unzuverlässig)
+      -- text_height ist end_row-INCLUSIVE (empirisch: 3-zeilen-buffer, end_row=3
+      -- = out of bounds; 0..1 = 6 rows) und wrap-aware → zeilen [T, anchor-1]
+      -- (1-based) = start_row=T-1, end_row=anchor-2
       local align_topline = function(win, anchor, want)
-        local bufnr = vim.api.nvim_win_get_buf(win)
-        local total = vim.api.nvim_buf_line_count(bufnr)
         local lo, hi = 1, math.max(anchor, 1)
         local best = math.max(anchor, 1)
         while lo <= hi do
           local mid = math.floor((lo + hi) / 2)
+          if anchor <= 1 then
+            break
+          end
           local ok, th = pcall(vim.api.nvim_win_text_height, win, {
             start_row = mid - 1,
-            end_row = anchor - 1,
+            end_row = anchor - 2,
           })
           local h = (ok and type(th) == 'table' and th.all) or (anchor - mid)
           if h <= want - 1 then
@@ -620,6 +622,13 @@ return {
       -- zelle zeilen-exakt weiterverfolgen. highlight-band immer auf der
       -- gemappten cursor-zeile
       local last_cell_marker = nil
+      local dbg = function(msg)
+        local f = io.open('/tmp/molten_sync.log', 'a')
+        if f then
+          f:write(msg .. '\n')
+          f:close()
+        end
+      end
 
       local sync_reader = function()
         if not (reader_win and vim.api.nvim_win_is_valid(reader_win)) then
@@ -658,6 +667,7 @@ return {
         -- wrap-fortsetzungszeile am fensteranfang)
         local sp = vim.fn.screenpos(reader_notebook_win, marker, 1)
         local marker_off = (sp.row and sp.row > 0) and (sp.row - 1) or math.max(marker - nb_top, 0)
+        dbg(('cur=%d marker=%d cell_changed=%s nb_top=%d sp_row=%s marker_off=%d'):format(cur, marker, tostring(cell_changed), nb_top, tostring(sp.row), marker_off))
         local anchor_row, want
         if cell_changed then
           -- zell-snap: reader-zellstart auf die marker-screen-offset
@@ -673,13 +683,15 @@ return {
         end
         vim.api.nvim_win_set_cursor(reader_win, { anchor_row, 0 })
         local topline = align_topline(reader_win, anchor_row, want)
-        if vim.api.nvim_win_call(reader_win, function()
-          return vim.fn.line 'w0'
-        end) ~= topline then
+        dbg(('anchor=%d want=%d topline=%d'):format(anchor_row, want, topline))
+        local before = vim.api.nvim_win_call(reader_win, function() return vim.fn.line 'w0' end)
+        if before ~= topline then
           vim.api.nvim_win_call(reader_win, function()
             vim.fn.winrestview({ topline = topline, leftcol = 0, col = 0, curswant = 0 })
           end)
         end
+        local after = vim.api.nvim_win_call(reader_win, function() return vim.fn.line 'w0' end)
+        dbg(('topline_before=%d topline_set=%d w0_after=%d (erwartet %d)'):format(before, topline, after, topline))
         if cell_changed then
           -- nach dem snap auf die gemappte cursor-zeile (liegt in-view)
           vim.api.nvim_win_set_cursor(reader_win, { row, 0 })
